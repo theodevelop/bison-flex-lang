@@ -25,11 +25,31 @@ export type DiagEntry = EntryWithHref | EntryNoHref;
 export const DC = {
 
   // ── Bison: structural ────────────────────────────────────────────────────────
-  BISON_MISSING_SEPARATOR:    { code: 'bison/missing-separator',    source: 'bison' },
-  BISON_UNKNOWN_DIRECTIVE:    { code: 'bison/unknown-directive',    source: 'bison' },
-  BISON_UNCLOSED_BLOCK:       { code: 'bison/unclosed-block',       source: 'bison' },
-  BISON_DUPLICATE_RULE:       { code: 'bison/duplicate-rule',       source: 'bison' },
-  BISON_INFINITE_RECURSION:   { code: 'bison/infinite-recursion',   source: 'bison' },
+  BISON_MISSING_SEPARATOR: {
+    code: 'bison/missing-separator',
+    source: 'bison',
+    href: 'https://www.gnu.org/software/bison/manual/html_node/Grammar-File.html',
+  },
+  BISON_UNKNOWN_DIRECTIVE: {
+    code: 'bison/unknown-directive',
+    source: 'bison',
+    href: 'https://www.gnu.org/software/bison/manual/html_node/Declarations.html',
+  },
+  BISON_UNCLOSED_BLOCK: {
+    code: 'bison/unclosed-block',
+    source: 'bison',
+    href: 'https://www.gnu.org/software/bison/manual/html_node/Prologue.html',
+  },
+  BISON_DUPLICATE_RULE: {
+    code: 'bison/duplicate-rule',
+    source: 'bison',
+    href: 'https://www.gnu.org/software/bison/manual/html_node/Rules-Syntax.html',
+  },
+  BISON_INFINITE_RECURSION: {
+    code: 'bison/infinite-recursion',
+    source: 'bison',
+    href: 'https://www.gnu.org/software/bison/manual/html_node/Recursion.html',
+  },
 
   // ── Bison: tokens ────────────────────────────────────────────────────────────
   BISON_UNDECLARED_TOKEN: {
@@ -44,9 +64,21 @@ export const DC = {
   },
 
   // ── Bison: rules ─────────────────────────────────────────────────────────────
-  BISON_UNUSED_RULE:          { code: 'bison/unused-rule',          source: 'bison' },
-  BISON_MISSING_RULE:         { code: 'bison/missing-rule',         source: 'bison' },
-  BISON_MISSING_TYPE:         { code: 'bison/missing-type',         source: 'bison' },
+  BISON_UNUSED_RULE: {
+    code: 'bison/unused-rule',
+    source: 'bison',
+    href: 'https://www.gnu.org/software/bison/manual/html_node/Rules-Syntax.html',
+  },
+  BISON_MISSING_RULE: {
+    code: 'bison/missing-rule',
+    source: 'bison',
+    href: 'https://www.gnu.org/software/bison/manual/html_node/Rules-Syntax.html',
+  },
+  BISON_MISSING_TYPE: {
+    code: 'bison/missing-type',
+    source: 'bison',
+    href: 'https://www.gnu.org/software/bison/manual/html_node/Type-Decl.html',
+  },
   BISON_MISSING_EMPTY: {
     code: 'bison/missing-empty',
     source: 'bison',
@@ -79,27 +111,79 @@ export const DC = {
   BISON_MISSING_LEXER_RETURN: { code: 'bison/missing-lexer-return', source: 'bison' },
 
   // ── Yacc compatibility ───────────────────────────────────────────────────────
-  BISON_YACC_COMPAT: { code: 'bison/yacc-compat', source: 'bison-yacc-compat' },
+  BISON_YACC_COMPAT: {
+    code: 'bison/yacc-compat',
+    source: 'bison-yacc-compat',
+    href: 'https://www.gnu.org/software/bison/manual/html_node/Bison-Options.html',
+  },
 
   // ── Flex: structural ─────────────────────────────────────────────────────────
-  FLEX_MISSING_SEPARATOR:    { code: 'flex/missing-separator',    source: 'flex' },
-  FLEX_UNKNOWN_DIRECTIVE:    { code: 'flex/unknown-directive',    source: 'flex' },
-  FLEX_UNCLOSED_BLOCK:       { code: 'flex/unclosed-block',       source: 'flex' },
-  FLEX_INVALID_PATTERN:      { code: 'flex/invalid-pattern',      source: 'flex' },
-  FLEX_DUPLICATE_EOF:        { code: 'flex/duplicate-eof',        source: 'flex' },
+  FLEX_MISSING_SEPARATOR: {
+    code: 'flex/missing-separator',
+    source: 'flex',
+    href: 'https://westes.github.io/flex/manual/Format.html',
+  },
+  FLEX_UNKNOWN_DIRECTIVE: {
+    code: 'flex/unknown-directive',
+    source: 'flex',
+    href: 'https://westes.github.io/flex/manual/Scanner-Options.html',
+  },
+  FLEX_UNCLOSED_BLOCK: {
+    code: 'flex/unclosed-block',
+    source: 'flex',
+    href: 'https://westes.github.io/flex/manual/Format.html',
+  },
+  FLEX_INVALID_PATTERN: {
+    code: 'flex/invalid-pattern',
+    source: 'flex',
+    href: 'https://westes.github.io/flex/manual/Patterns.html',
+  },
+  FLEX_DUPLICATE_EOF: {
+    code: 'flex/duplicate-eof',
+    source: 'flex',
+    href: 'https://westes.github.io/flex/manual/EOF.html',
+  },
 
   // ── Flex: start conditions ───────────────────────────────────────────────────
-  FLEX_UNDEFINED_SC: { code: 'flex/undefined-sc', source: 'flex' },
-  FLEX_UNUSED_SC:    { code: 'flex/unused-sc',    source: 'flex' },
+  FLEX_UNDEFINED_SC: {
+    code: 'flex/undefined-sc',
+    source: 'flex',
+    href: 'https://westes.github.io/flex/manual/Start-Conditions.html',
+  },
+  FLEX_UNUSED_SC: {
+    code: 'flex/unused-sc',
+    source: 'flex',
+    href: 'https://westes.github.io/flex/manual/Start-Conditions.html',
+  },
 
   // ── Flex: abbreviations ──────────────────────────────────────────────────────
-  FLEX_UNDEFINED_ABBREV: { code: 'flex/undefined-abbrev', source: 'flex' },
-  FLEX_UNUSED_ABBREV:    { code: 'flex/unused-abbrev',    source: 'flex' },
+  FLEX_UNDEFINED_ABBREV: {
+    code: 'flex/undefined-abbrev',
+    source: 'flex',
+    href: 'https://westes.github.io/flex/manual/Definitions-Section.html',
+  },
+  FLEX_UNUSED_ABBREV: {
+    code: 'flex/unused-abbrev',
+    source: 'flex',
+    href: 'https://westes.github.io/flex/manual/Definitions-Section.html',
+  },
 
   // ── Flex: rules ──────────────────────────────────────────────────────────────
-  FLEX_UNREACHABLE_RULE: { code: 'flex/unreachable-rule', source: 'flex' },
-  FLEX_UNUSED_OPTION:    { code: 'flex/unused-option',    source: 'flex' },
-  FLEX_MISSING_YYWRAP:   { code: 'flex/missing-yywrap',   source: 'flex' },
+  FLEX_UNREACHABLE_RULE: {
+    code: 'flex/unreachable-rule',
+    source: 'flex',
+    href: 'https://westes.github.io/flex/manual/Matching.html',
+  },
+  FLEX_UNUSED_OPTION: {
+    code: 'flex/unused-option',
+    source: 'flex',
+    href: 'https://westes.github.io/flex/manual/Scanner-Options.html',
+  },
+  FLEX_MISSING_YYWRAP: {
+    code: 'flex/missing-yywrap',
+    source: 'flex',
+    href: 'https://westes.github.io/flex/manual/Options-Affecting-Scanner-Behavior.html',
+  },
 
   // ── Flex: cross-file ─────────────────────────────────────────────────────────
   FLEX_MISSING_GRAMMAR_TOKEN: { code: 'flex/missing-grammar-token', source: 'flex' },
