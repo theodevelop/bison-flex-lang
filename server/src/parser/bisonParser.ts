@@ -106,7 +106,8 @@ export function parseBisonDocument(text: string): BisonDocument {
     if (tokenMatch) {
       lastTokenType = tokenMatch[1];
       lastTokenDirectiveLine = i;
-      parseTokenNames(tokenMatch[2], lastTokenType, i, doc);
+      const tokenColOffset = line.indexOf(trimmed) + (tokenMatch[0].length - tokenMatch[2].length);
+      parseTokenNames(tokenMatch[2], lastTokenType, i, doc, tokenColOffset);
       continue;
     }
 
@@ -198,12 +199,12 @@ export function parseBisonDocument(text: string): BisonDocument {
 
     // Continuation lines for %token (indented names after a %token line)
     if (lastTokenDirectiveLine >= 0 && i === lastTokenDirectiveLine + 1 && /^\s+[a-zA-Z_]/.test(line)) {
-      parseTokenNames(trimmed, lastTokenType, i, doc);
+      parseTokenNames(trimmed, lastTokenType, i, doc, line.indexOf(trimmed));
       lastTokenDirectiveLine = i; // allow chaining
       continue;
     }
     if (/^\s+[a-zA-Z_]/.test(line) && i > 0 && i <= lastTokenDirectiveLine + 1) {
-      parseTokenNames(trimmed, lastTokenType, i, doc);
+      parseTokenNames(trimmed, lastTokenType, i, doc, line.indexOf(trimmed));
       lastTokenDirectiveLine = i;
       continue;
     }
@@ -237,7 +238,7 @@ export function parseBisonDocument(text: string): BisonDocument {
     // Must be handled BEFORE rule-body processing to avoid contaminating rule symbols.
     if (trimmed.startsWith('%token') && braceDepth === 0) {
       const tm = trimmed.match(/^%token(?:\s+<([^>]+)>)?\s+(.+)/);
-      if (tm) parseTokenNames(tm[2], tm[1], i, doc);
+      if (tm) parseTokenNames(tm[2], tm[1], i, doc, line.indexOf(trimmed) + (tm[0].length - tm[2].length));
       continue;
     }
 
@@ -420,7 +421,7 @@ function getFirstSymbol(text: string): string | undefined {
   return m ? m[1] : undefined;
 }
 
-function parseTokenNames(text: string, type: string | undefined, lineNum: number, doc: BisonDocument): void {
+function parseTokenNames(text: string, type: string | undefined, lineNum: number, doc: BisonDocument, colOffset: number = 0): void {
   // Match patterns like: NAME "alias" VALUE  or just NAME
   // Use [a-zA-Z_][a-zA-Z0-9_]* to support lowercase letters and digits in token names.
   const regex = /([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:("(?:[^"\\]|\\.)*")\s*)?(?:(\d+)\s*)?/g;
@@ -429,11 +430,12 @@ function parseTokenNames(text: string, type: string | undefined, lineNum: number
     const name = match[1];
     const alias = match[2]?.replace(/"/g, '');
     const value = match[3] ? parseInt(match[3]) : undefined;
+    const col = colOffset + match.index;
     const decl: TokenDeclaration = {
       name,
       type,
       alias,
-      location: Range.create(lineNum, match.index, lineNum, match.index + name.length),
+      location: Range.create(lineNum, col, lineNum, col + name.length),
       value,
     };
     doc.tokens.set(name, decl);
