@@ -110,6 +110,13 @@ export const DC = {
   // ── Bison: cross-file ────────────────────────────────────────────────────────
   BISON_MISSING_LEXER_RETURN: { code: 'bison/missing-lexer-return', source: 'bison' },
 
+  // ── Bison: version compatibility ─────────────────────────────────────────────
+  BISON_FEATURE_REQUIRES_VERSION: {
+    code: 'bison/feature-requires-version',
+    source: 'bison',
+    href: 'https://www.gnu.org/software/bison/manual/html_node/Bison-Options.html',
+  },
+
   // ── Yacc compatibility ───────────────────────────────────────────────────────
   BISON_YACC_COMPAT: {
     code: 'bison/yacc-compat',
