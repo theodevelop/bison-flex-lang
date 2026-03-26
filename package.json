@@ -246,6 +246,25 @@
           "type": "boolean",
           "default": true,
           "description": "Warn when a .y/.l file is not referenced by a BISON_TARGET / FLEX_TARGET in a nearby CMakeLists.txt."
+        },
+        "bisonFlex.minVersionBison": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "Minimum Bison version your project supports (e.g. `\"2.3\"`). Automatically suppresses diagnostics for features requiring a newer version:\n- `bison/missing-empty` and `bison/yacc-compat` are suppressed when the target is below **3.0**.\n\nAlso emits a warning when your grammar uses a feature (e.g. `api.value.type=variant`) that requires a version higher than your target."
+        },
+        "bisonFlex.minVersionFlex": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "Minimum Flex version your project supports (e.g. `\"2.5\"`). Reserved for future version-gated Flex checks."
+        },
+        "bisonFlex.disabledChecks": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "scope": "resource",
+          "markdownDescription": "Diagnostic codes to silence entirely, regardless of version settings. Example: `[\"bison/shift-reduce\", \"flex/missing-yywrap\"]`.\n\nSee all available codes in the [Diagnostic Codes reference](https://github.com/theodevelop/bison-flex-lang/wiki/Diagnostic-Codes)."
         }
       }
     }
