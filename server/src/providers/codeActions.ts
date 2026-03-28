@@ -13,18 +13,25 @@ import { DocumentModel, BisonDocument, FlexDocument, isBisonDocument, isFlexDocu
  * Provide code actions (quick fixes) for diagnostics.
  *
  * Handles:
+ * - bison/missing-separator    → append %% at end of file
  * - bison/undeclared-token     → insert %token X before first %%
  * - bison/missing-empty        → insert %empty at the empty production
  * - bison/unused-token         → delete the %token declaration line
  * - bison/unknown-directive    → delete the directive line
  * - bison/missing-rule         → insert rule stub after first %%
+ * - bison/missing-type         → insert %type <todo> rule before first %%
+ * - bison/undefined-start      → delete the invalid %start line
  * - bison/missing-start        → insert %start <rule> before first %%
  * - bison/unclosed-block       → insert %} at end of file
  * - bison/yacc-compat          → replace legacy directives with modern Bison 3.x equivalents
+ * - flex/missing-separator     → append %% at end of file
+ * - flex/undefined-abbrev      → insert abbreviation stub before first %%
  * - flex/unused-abbrev         → delete the abbreviation definition line
  * - flex/unused-sc             → delete the %x/%s declaration line
  * - flex/unknown-directive     → delete the directive line
  * - flex/undefined-sc          → insert %x SC_NAME before first %%
+ * - flex/unused-option         → remove the unused option name
+ * - flex/duplicate-eof         → delete the duplicate <<EOF>> rule line
  * - flex/missing-yywrap        → insert %option noyywrap before first %%
  * - flex/unclosed-block        → insert %} at end of file
  * - flex/unreachable-rule      → delete the inaccessible rule line
@@ -59,6 +66,22 @@ function bisonCodeActions(
 ): CodeAction[] {
   const actions: CodeAction[] = [];
   const uri = params.textDocument.uri;
+
+  // ── bison/missing-separator → append %% at end of file ───────────────────
+  if (code === 'bison/missing-separator') {
+    const lastLine = textDoc.lineCount;
+    actions.push({
+      title: "Insert missing '%%' separator",
+      kind: CodeActionKind.QuickFix,
+      diagnostics: [diag],
+      isPreferred: true,
+      edit: {
+        changes: {
+          [uri]: [TextEdit.insert(Range.create(lastLine, 0, lastLine, 0).start, '\n%%\n')],
+        },
+      },
+    });
+  }
 
   // ── bison/undeclared-token → insert %token X before first %% ──────────────
   if (code === 'bison/undeclared-token') {
@@ -145,6 +168,42 @@ function bisonCodeActions(
         },
       });
     }
+  }
+
+  // ── bison/missing-type → insert %type declaration before first %% ────────
+  if (code === 'bison/missing-type') {
+    const m = diag.message.match(/Rule '([^']+)' has no %type declaration/);
+    if (m) {
+      const ruleName = m[1];
+      const insertLine = bisonDoc.separators.length > 0 ? bisonDoc.separators[0] : 0;
+      actions.push({
+        title: `Add '%type <todo> ${ruleName}'`,
+        kind: CodeActionKind.QuickFix,
+        diagnostics: [diag],
+        isPreferred: true,
+        edit: {
+          changes: {
+            [uri]: [TextEdit.insert(Range.create(insertLine, 0, insertLine, 0).start, `%type <todo> ${ruleName}\n`)],
+          },
+        },
+      });
+    }
+  }
+
+  // ── bison/undefined-start → delete the %start line ────────────────────────
+  if (code === 'bison/undefined-start') {
+    const line = diag.range.start.line;
+    actions.push({
+      title: 'Remove invalid %start directive',
+      kind: CodeActionKind.QuickFix,
+      diagnostics: [diag],
+      isPreferred: true,
+      edit: {
+        changes: {
+          [uri]: [TextEdit.del(Range.create(line, 0, line + 1, 0))],
+        },
+      },
+    });
   }
 
   // ── bison/missing-start → insert %start <rule> before first %% ───────────
@@ -245,6 +304,42 @@ function flexCodeActions(
 ): CodeAction[] {
   const actions: CodeAction[] = [];
   const uri = params.textDocument.uri;
+
+  // ── flex/missing-separator → append %% at end of file ────────────────────
+  if (code === 'flex/missing-separator') {
+    const lastLine = textDoc.lineCount;
+    actions.push({
+      title: "Insert missing '%%' separator",
+      kind: CodeActionKind.QuickFix,
+      diagnostics: [diag],
+      isPreferred: true,
+      edit: {
+        changes: {
+          [uri]: [TextEdit.insert(Range.create(lastLine, 0, lastLine, 0).start, '\n%%\n')],
+        },
+      },
+    });
+  }
+
+  // ── flex/undefined-abbrev → insert abbreviation stub before first %% ──────
+  if (code === 'flex/undefined-abbrev') {
+    const m = diag.message.match(/Abbreviation '\{([^}]+)\}' is used but not defined/);
+    if (m) {
+      const abbrevName = m[1];
+      const insertLine = flexDoc.separators.length > 0 ? flexDoc.separators[0] : 0;
+      actions.push({
+        title: `Define abbreviation '${abbrevName}'`,
+        kind: CodeActionKind.QuickFix,
+        diagnostics: [diag],
+        isPreferred: true,
+        edit: {
+          changes: {
+            [uri]: [TextEdit.insert(Range.create(insertLine, 0, insertLine, 0).start, `${abbrevName}  [todo]\n`)],
+          },
+        },
+      });
+    }
+  }
 
   // ── flex/unused-abbrev → delete abbreviation definition line ──────────────
   if (code === 'flex/unused-abbrev') {
@@ -347,6 +442,37 @@ function flexCodeActions(
   }
 
   // ── flex/unclosed-block → insert %} at end of file ────────────────────────
+  // ── flex/unused-option → remove the option name from the line ─────────────
+  if (code === 'flex/unused-option') {
+    actions.push({
+      title: 'Remove unused %option',
+      kind: CodeActionKind.QuickFix,
+      diagnostics: [diag],
+      isPreferred: true,
+      edit: {
+        changes: {
+          [uri]: [TextEdit.replace(diag.range, '')],
+        },
+      },
+    });
+  }
+
+  // ── flex/duplicate-eof → delete the duplicate <<EOF>> rule line ───────────
+  if (code === 'flex/duplicate-eof') {
+    const line = diag.range.start.line;
+    actions.push({
+      title: 'Remove duplicate <<EOF>> rule',
+      kind: CodeActionKind.QuickFix,
+      diagnostics: [diag],
+      isPreferred: true,
+      edit: {
+        changes: {
+          [uri]: [TextEdit.del(Range.create(line, 0, line + 1, 0))],
+        },
+      },
+    });
+  }
+
   if (code === 'flex/unclosed-block') {
     actions.push({
       title: "Close block with '%}'",
