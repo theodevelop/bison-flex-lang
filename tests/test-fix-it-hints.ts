@@ -393,6 +393,80 @@ console.log('\n=== flex/unclosed-block → insert %} ===');
   }
 }
 
+// ── bison/missing-separator ───────────────────────────────────────────────────
+console.log('\n=== bison/missing-separator → append %% ===');
+{
+  const uri = 'file:///test.y';
+  const src = '%token A\nexpr : A ;\n';
+  const doc = parseBisonDocument(src);
+  const textDoc = TextDocument.create(uri, 'bison', 1, src);
+  const diags = computeBisonDiagnostics(doc, src, DEFAULT_SETTINGS);
+  const diag = diags.find(d => d.code === 'bison/missing-separator');
+  assert(!!diag, 'diagnostic emitted for missing-separator');
+  if (diag) {
+    const actions = getCodeActions(doc, textDoc, makeParams(uri, [diag]));
+    const action = findAction(actions, "Insert missing '%%' separator");
+    assert(!!action, 'action returned');
+    if (action) {
+      assert(action.isPreferred === true, 'isPreferred');
+      const es = edits(action, uri);
+      assert(es.length === 1, 'one edit');
+      assert(es[0].newText === '\n%%\n', 'inserts %%');
+      assert(es[0].range.start.line === textDoc.lineCount, 'insert at end of file');
+    }
+  }
+}
+
+// ── bison/missing-type ────────────────────────────────────────────────────────
+console.log('\n=== bison/missing-type → insert %type declaration ===');
+{
+  const uri = 'file:///test.y';
+  const src = '%token A\n%define api.value.type variant\n%%\nfoo : A ;\n%%\n';
+  const doc = parseBisonDocument(src);
+  const textDoc = TextDocument.create(uri, 'bison', 1, src);
+  const diags = computeBisonDiagnostics(doc, src, DEFAULT_SETTINGS);
+  const diag = diags.find(d => d.code === 'bison/missing-type');
+  assert(!!diag, 'diagnostic emitted for missing-type');
+  if (diag) {
+    const actions = getCodeActions(doc, textDoc, makeParams(uri, [diag]));
+    const action = findAction(actions, "Add '%type <todo> foo'");
+    assert(!!action, 'action returned');
+    if (action) {
+      assert(action.isPreferred === true, 'isPreferred');
+      const es = edits(action, uri);
+      assert(es.length === 1, 'one edit');
+      assert(es[0].newText === '%type <todo> foo\n', 'stub text');
+      // first %% is line 2
+      assert(es[0].range.start.line === 2, 'insert before first %%');
+    }
+  }
+}
+
+// ── bison/undefined-start ─────────────────────────────────────────────────────
+console.log('\n=== bison/undefined-start → delete %start line ===');
+{
+  const uri = 'file:///test.y';
+  const src = '%token A\n%start ghost\n%%\nexpr : A ;\n%%\n';
+  const doc = parseBisonDocument(src);
+  const textDoc = TextDocument.create(uri, 'bison', 1, src);
+  const diags = computeBisonDiagnostics(doc, src, DEFAULT_SETTINGS);
+  const diag = diags.find(d => d.code === 'bison/undefined-start');
+  assert(!!diag, 'diagnostic emitted for undefined-start');
+  if (diag) {
+    const actions = getCodeActions(doc, textDoc, makeParams(uri, [diag]));
+    const action = findAction(actions, 'Remove invalid %start directive');
+    assert(!!action, 'action returned');
+    if (action) {
+      assert(action.isPreferred === true, 'isPreferred');
+      const es = edits(action, uri);
+      assert(es.length === 1, 'one edit');
+      assert(es[0].newText === '', 'deletion');
+      assert(es[0].range.start.line === 1, 'deletes %start line');
+      assert(es[0].range.end.line === 2, 'ends on next line');
+    }
+  }
+}
+
 // ── bison/unknown-directive ───────────────────────────────────────────────────
 console.log('\n=== bison/unknown-directive → delete line ===');
 {
@@ -440,6 +514,108 @@ console.log('\n=== bison/missing-rule → insert rule stub ===');
       assert(es[0].newText === 'foo : ;\n', 'stub text');
       // first %% is line 2, so insert after %% at line 3
       assert(es[0].range.start.line === 3, 'insert after first %%');
+    }
+  }
+}
+
+// ── flex/missing-separator ────────────────────────────────────────────────────
+console.log('\n=== flex/missing-separator → append %% ===');
+{
+  const { parseFlexDocument } = require('../server/src/parser/flexParser');
+  const uri = 'file:///test.l';
+  const src = '%option noyywrap\n[a-z]+  {}\n';
+  const doc = parseFlexDocument(src);
+  const textDoc = TextDocument.create(uri, 'flex', 1, src);
+  const diags = computeFlexDiagnostics(doc, src, DEFAULT_SETTINGS);
+  const diag = diags.find(d => d.code === 'flex/missing-separator');
+  assert(!!diag, 'diagnostic emitted for missing-separator');
+  if (diag) {
+    const actions = getCodeActions(doc, textDoc, makeParams(uri, [diag]));
+    const action = findAction(actions, "Insert missing '%%' separator");
+    assert(!!action, 'action returned');
+    if (action) {
+      assert(action.isPreferred === true, 'isPreferred');
+      const es = edits(action, uri);
+      assert(es.length === 1, 'one edit');
+      assert(es[0].newText === '\n%%\n', 'inserts %%');
+      assert(es[0].range.start.line === textDoc.lineCount, 'insert at end of file');
+    }
+  }
+}
+
+// ── flex/undefined-abbrev ─────────────────────────────────────────────────────
+console.log('\n=== flex/undefined-abbrev → insert abbreviation stub ===');
+{
+  const { parseFlexDocument } = require('../server/src/parser/flexParser');
+  const uri = 'file:///test.l';
+  const src = '%option noyywrap\n%%\n{DIGIT}+  {}\n%%\n';
+  const doc = parseFlexDocument(src);
+  const textDoc = TextDocument.create(uri, 'flex', 1, src);
+  const diags = computeFlexDiagnostics(doc, src, DEFAULT_SETTINGS);
+  const diag = diags.find(d => d.code === 'flex/undefined-abbrev');
+  assert(!!diag, 'diagnostic emitted for undefined-abbrev');
+  if (diag) {
+    const actions = getCodeActions(doc, textDoc, makeParams(uri, [diag]));
+    const action = findAction(actions, "Define abbreviation 'DIGIT'");
+    assert(!!action, 'action returned');
+    if (action) {
+      assert(action.isPreferred === true, 'isPreferred');
+      const es = edits(action, uri);
+      assert(es.length === 1, 'one edit');
+      assert(es[0].newText === 'DIGIT  [todo]\n', 'stub text');
+      // first %% is line 1
+      assert(es[0].range.start.line === 1, 'insert before first %%');
+    }
+  }
+}
+
+// ── flex/unused-option ────────────────────────────────────────────────────────
+console.log('\n=== flex/unused-option → remove option name ===');
+{
+  const { parseFlexDocument } = require('../server/src/parser/flexParser');
+  const uri = 'file:///test.l';
+  const src = '%option noyywrap stack\n%%\n[a-z]+  {}\n%%\n';
+  const doc = parseFlexDocument(src);
+  const textDoc = TextDocument.create(uri, 'flex', 1, src);
+  const diags = computeFlexDiagnostics(doc, src, DEFAULT_SETTINGS);
+  const diag = diags.find(d => d.code === 'flex/unused-option');
+  assert(!!diag, 'diagnostic emitted for unused-option');
+  if (diag) {
+    const actions = getCodeActions(doc, textDoc, makeParams(uri, [diag]));
+    const action = findAction(actions, 'Remove unused %option');
+    assert(!!action, 'action returned');
+    if (action) {
+      assert(action.isPreferred === true, 'isPreferred');
+      const es = edits(action, uri);
+      assert(es.length === 1, 'one edit');
+      assert(es[0].newText === '', 'replaces with empty string');
+      assert(es[0].range.start.line === 0, 'on %option line');
+    }
+  }
+}
+
+// ── flex/duplicate-eof ────────────────────────────────────────────────────────
+console.log('\n=== flex/duplicate-eof → delete duplicate <<EOF>> line ===');
+{
+  const { parseFlexDocument } = require('../server/src/parser/flexParser');
+  const uri = 'file:///test.l';
+  const src = '%option noyywrap\n%%\n<<EOF>>  {}\n<<EOF>>  {}\n%%\n';
+  const doc = parseFlexDocument(src);
+  const textDoc = TextDocument.create(uri, 'flex', 1, src);
+  const diags = computeFlexDiagnostics(doc, src, DEFAULT_SETTINGS);
+  const diag = diags.find(d => d.code === 'flex/duplicate-eof');
+  assert(!!diag, 'diagnostic emitted for duplicate-eof');
+  if (diag) {
+    const actions = getCodeActions(doc, textDoc, makeParams(uri, [diag]));
+    const action = findAction(actions, 'Remove duplicate <<EOF>> rule');
+    assert(!!action, 'action returned');
+    if (action) {
+      assert(action.isPreferred === true, 'isPreferred');
+      const es = edits(action, uri);
+      assert(es.length === 1, 'one edit');
+      assert(es[0].newText === '', 'deletion');
+      assert(es[0].range.start.line === 3, 'deletes duplicate line');
+      assert(es[0].range.end.line === 4, 'ends on next line');
     }
   }
 }
