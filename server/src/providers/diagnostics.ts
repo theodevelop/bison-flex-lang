@@ -1,7 +1,9 @@
-import { Diagnostic, DiagnosticSeverity, Range } from 'vscode-languageserver';
+import { Diagnostic, DiagnosticSeverity, DiagnosticTag, Range } from 'vscode-languageserver';
+import { DC, codeDesc } from './diagnosticCodes';
 import { BisonDocument, FlexDocument } from '../parser/types';
+import { ExtensionSettings, DEFAULT_SETTINGS, isCheckEnabled, BISON_FEATURE_VERSIONS, versionLt } from './settings';
 
-export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagnostic[] {
+export function computeBisonDiagnostics(doc: BisonDocument, text: string, settings: ExtensionSettings = DEFAULT_SETTINGS): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   const lines = text.split(/\r?\n/);
 
@@ -11,7 +13,8 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
       severity: DiagnosticSeverity.Error,
       range: Range.create(0, 0, 0, lines[0]?.length || 0),
       message: 'Missing %% separator between declarations and rules sections.',
-      source: 'bison',
+      source: DC.BISON_MISSING_SEPARATOR.source,
+      code:   DC.BISON_MISSING_SEPARATOR.code,
     });
     return diagnostics; // Can't do much more without sections
   }
@@ -22,7 +25,8 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
       severity: DiagnosticSeverity.Error,
       range: unk.location,
       message: `Unknown Bison directive '${unk.name}'. Check the Bison manual for valid directives.`,
-      source: 'bison',
+      source: DC.BISON_UNKNOWN_DIRECTIVE.source,
+      code:   DC.BISON_UNKNOWN_DIRECTIVE.code,
     });
   }
 
@@ -35,6 +39,7 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
     for (const sym of prec.symbols) precDeclaredSymbols.add(sym);
   }
 
+  if (isCheckEnabled(DC.BISON_UNDECLARED_TOKEN.code, settings))
   for (const [name, refs] of doc.ruleReferences) {
     // String-literal placeholders (e.g. __s2b__ for "+") are internal artifacts;
     // they are all lowercase so they fail the all-caps check below, but guard
@@ -63,27 +68,31 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
           severity: DiagnosticSeverity.Warning,
           range: ref,
           message: `Token '${name}' is used but not declared with %token.`,
-          source: 'bison',
+          source:          DC.BISON_UNDECLARED_TOKEN.source,
+          code:            DC.BISON_UNDECLARED_TOKEN.code,
+          codeDescription: codeDesc(DC.BISON_UNDECLARED_TOKEN),
         });
       }
     }
   }
 
   // 5. Non-terminals in %type that are never defined as rule LHS
+  if (isCheckEnabled(DC.BISON_MISSING_RULE.code, settings))
   for (const [name, decl] of doc.nonTerminals) {
     if (!doc.rules.has(name)) {
       diagnostics.push({
         severity: DiagnosticSeverity.Warning,
         range: decl.location,
         message: `Non-terminal '${name}' has a %type declaration but no rule definition.`,
-        source: 'bison',
+        source: DC.BISON_MISSING_RULE.source,
+        code:   DC.BISON_MISSING_RULE.code,
       });
     }
   }
 
   // 6. Rules defined but no %type declaration (only if api.value.type is variant)
   const isVariant = doc.defines.get('api.value.type')?.value === 'variant';
-  if (isVariant) {
+  if (isVariant && isCheckEnabled(DC.BISON_MISSING_TYPE.code, settings)) {
     for (const [name] of doc.rules) {
       if (!doc.nonTerminals.has(name)) {
         const rule = doc.rules.get(name)!;
@@ -91,7 +100,8 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
           severity: DiagnosticSeverity.Information,
           range: rule.location,
           message: `Rule '${name}' has no %type declaration. With variant types, this may cause compilation errors.`,
-          source: 'bison',
+          source: DC.BISON_MISSING_TYPE.source,
+          code:   DC.BISON_MISSING_TYPE.code,
         });
       }
     }
@@ -109,7 +119,8 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
       severity: DiagnosticSeverity.Error,
       range: Range.create(lines.length - 1, 0, lines.length - 1, 0),
       message: 'Unclosed %{ block — missing %} before end of file.',
-      source: 'bison',
+      source: DC.BISON_UNCLOSED_BLOCK.source,
+      code:   DC.BISON_UNCLOSED_BLOCK.code,
     });
   }
 
@@ -117,6 +128,7 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
   // If %start is not declared, Bison uses the first rule as the implicit start symbol
   const effectiveStart = doc.startSymbol ?? (doc.rules.size > 0 ? [...doc.rules.keys()][0] : undefined);
 
+  if (isCheckEnabled(DC.BISON_UNUSED_RULE.code, settings))
   for (const [name, rule] of doc.rules) {
     // The start symbol is the grammar entry point — always "used"
     if (name === effectiveStart) continue;
@@ -126,7 +138,9 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
         severity: DiagnosticSeverity.Warning,
         range: rule.location,
         message: `Non-terminal '${name}' is defined but never referenced in any rule. It is unreachable from the grammar.`,
-        source: 'bison',
+        source: DC.BISON_UNUSED_RULE.source,
+        code:   DC.BISON_UNUSED_RULE.code,
+        tags:   [DiagnosticTag.Unnecessary],
       });
     }
   }
@@ -134,6 +148,7 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
   // ── TASK 3: Unused tokens ────────────────────────────────────────────────────
   // A token is "used" if its name OR its string alias appears in any rule body.
   // E.g. `%token AND "&"` is used when the rule body contains `"&"`.
+  if (isCheckEnabled(DC.BISON_UNUSED_TOKEN.code, settings))
   for (const [name, decl] of doc.tokens) {
     // EOF (value 0) is Bison's internal end-of-input token.  It is consumed
     // automatically by the parser and never appears explicitly in rule bodies.
@@ -145,19 +160,23 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
         severity: DiagnosticSeverity.Warning,
         range: decl.location,
         message: `Token '${name}' is declared with %token but never used in any rule.`,
-        source: 'bison',
+        source:          DC.BISON_UNUSED_TOKEN.source,
+        code:            DC.BISON_UNUSED_TOKEN.code,
+        codeDescription: codeDesc(DC.BISON_UNUSED_TOKEN),
+        tags:            [DiagnosticTag.Unnecessary],
       });
     }
   }
 
   // ── TASK 4: Obvious shift/reduce conflicts ───────────────────────────────────
+  // guarded inside the block below
   // Heuristic: same terminal token appears as first symbol in ≥2 alternatives
   // of the same rule. Suppressed when:
   //   (a) the token already has %left/%right/%nonassoc, OR
   //   (b) every alternative sharing that first token has a DISTINCT second symbol
   //       (e.g. ID "(" vs ID "{" vs ID "[" — the parser resolves by 1-token
   //       lookahead without any conflict).
-  {
+  if (isCheckEnabled(DC.BISON_SHIFT_REDUCE.code, settings)) {
     const declaredPrecTokens = new Set<string>();
     for (const prec of doc.precedence) {
       for (const sym of prec.symbols) {
@@ -192,7 +211,9 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
           severity: DiagnosticSeverity.Warning,
           range: rule.location,
           message: `Potential shift/reduce conflict in rule '${name}': token '${token}' starts ${seconds.length} alternatives without precedence disambiguation (%prec / %left / %right).`,
-          source: 'bison',
+          source:          DC.BISON_SHIFT_REDUCE.source,
+          code:            DC.BISON_SHIFT_REDUCE.code,
+          codeDescription: codeDesc(DC.BISON_SHIFT_REDUCE),
         });
       }
     }
@@ -201,6 +222,7 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
   // ── NEW 1: $n out of bounds ──────────────────────────────────────────────────
   // Covers both single-line actions { ... } and multi-line action blocks.
   // $$ and $<type>n are never matched by the /\$(\d+)/ scanner, so they are safe.
+  if (isCheckEnabled(DC.BISON_OUT_OF_BOUNDS.code, settings))
   for (const [name, rule] of doc.rules) {
     for (const alt of rule.alternatives) {
       const symbolCount = alt.symbols.length;
@@ -210,14 +232,18 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
             severity: DiagnosticSeverity.Error,
             range: ref.range,
             message: `$${ref.n} is out of bounds: alternative in rule '${name}' has no symbols (empty production).`,
-            source: 'bison',
+            source:          DC.BISON_OUT_OF_BOUNDS.source,
+            code:            DC.BISON_OUT_OF_BOUNDS.code,
+            codeDescription: codeDesc(DC.BISON_OUT_OF_BOUNDS),
           });
         } else if (ref.n > symbolCount) {
           diagnostics.push({
             severity: DiagnosticSeverity.Error,
             range: ref.range,
             message: `$${ref.n} is out of bounds: alternative in rule '${name}' has only ${symbolCount} symbol${symbolCount !== 1 ? 's' : ''} ($1–$${symbolCount}).`,
-            source: 'bison',
+            source:          DC.BISON_OUT_OF_BOUNDS.source,
+            code:            DC.BISON_OUT_OF_BOUNDS.code,
+            codeDescription: codeDesc(DC.BISON_OUT_OF_BOUNDS),
           });
         }
       }
@@ -227,7 +253,7 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
   // ── NEW 2: Undeclared binary operators — unresolved shift/reduce conflict ────
   // Fires when a rule has ≥2 left-recursive binary alternatives whose operator
   // tokens have NO %left / %right / %nonassoc declaration.
-  {
+  if (isCheckEnabled(DC.BISON_SHIFT_REDUCE.code, settings)) {
     const tokenPrecLevel = new Map<string, number>();
     for (let i = 0; i < doc.precedence.length; i++) {
       for (const sym of doc.precedence[i].symbols) {
@@ -258,24 +284,29 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
           severity: DiagnosticSeverity.Warning,
           range: rule.location,
           message: `Rule '${name}' has recursive alternatives using undeclared operators [${undeclaredOps.join(', ')}]. Add %left/%right/%nonassoc to resolve the shift/reduce conflict explicitly.`,
-          source: 'bison',
+          source:          DC.BISON_SHIFT_REDUCE.source,
+          code:            DC.BISON_SHIFT_REDUCE.code,
+          codeDescription: codeDesc(DC.BISON_SHIFT_REDUCE),
         });
       }
     }
   }
 
   // ── NEW 3: Missing %start directive ─────────────────────────────────────────
-  if (!doc.startSymbol && doc.rules.size > 2) {
+  if (!doc.startSymbol && doc.rules.size > 2 && isCheckEnabled(DC.BISON_MISSING_START.code, settings)) {
     const firstRuleName = [...doc.rules.keys()][0];
     diagnostics.push({
       severity: DiagnosticSeverity.Information,
       range: Range.create(0, 0, 0, 0),
       message: `No %start directive found. Bison implicitly uses '${firstRuleName}' as the start symbol. Consider adding '%start ${firstRuleName}' for clarity.`,
-      source: 'bison',
+      source:          DC.BISON_MISSING_START.source,
+      code:            DC.BISON_MISSING_START.code,
+      codeDescription: codeDesc(DC.BISON_MISSING_START),
     });
   }
 
   // ── NEW 4: Empty production without %empty ───────────────────────────────────
+  if (isCheckEnabled(DC.BISON_MISSING_EMPTY.code, settings))
   for (const [name, rule] of doc.rules) {
     for (const alt of rule.alternatives) {
       if (alt.symbols.length === 0 && !alt.hasExplicitEmpty) {
@@ -302,7 +333,9 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
           severity: DiagnosticSeverity.Warning,
           range: alt.range,
           message: `Empty production in rule '${name}' without %empty. Modern Bison (3.x+) recommends writing '%empty' to make empty productions explicit.`,
-          source: 'bison',
+          source:          DC.BISON_MISSING_EMPTY.source,
+          code:            DC.BISON_MISSING_EMPTY.code,
+          codeDescription: codeDesc(DC.BISON_MISSING_EMPTY),
         });
       }
     }
@@ -314,12 +347,14 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
       severity: DiagnosticSeverity.Error,
       range: doc.startSymbolLocation ?? Range.create(0, 0, 0, 0),
       message: `%start symbol '${doc.startSymbol}' has no corresponding rule definition.`,
-      source: 'bison',
+      source:          DC.BISON_UNDEFINED_START.source,
+      code:            DC.BISON_UNDEFINED_START.code,
+      codeDescription: codeDesc(DC.BISON_UNDEFINED_START),
     });
   }
 
   // ── NEW 6: %prec used with undeclared token ───────────────────────────────────
-  {
+  if (isCheckEnabled(DC.BISON_UNDECLARED_TOKEN.code, settings)) {
     const declaredPrecSymbols = new Set<string>();
     for (const prec of doc.precedence) {
       for (const sym of prec.symbols) declaredPrecSymbols.add(sym);
@@ -331,7 +366,9 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
             severity: DiagnosticSeverity.Warning,
             range: alt.range,
             message: `%prec uses '${alt.precToken}' in rule '${name}', but '${alt.precToken}' is not declared with %token or a precedence directive.`,
-            source: 'bison',
+            source:          DC.BISON_UNDECLARED_TOKEN.source,
+            code:            DC.BISON_UNDECLARED_TOKEN.code,
+            codeDescription: codeDesc(DC.BISON_UNDECLARED_TOKEN),
           });
         }
       }
@@ -339,16 +376,19 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
   }
 
   // ── NEW 7: Duplicate rule definitions ────────────────────────────────────────
+  if (isCheckEnabled(DC.BISON_DUPLICATE_RULE.code, settings))
   for (const dup of doc.duplicateRules) {
     diagnostics.push({
       severity: DiagnosticSeverity.Warning,
       range: dup.location,
       message: `Rule '${dup.name}' is defined more than once. Only the first definition is used by Bison.`,
-      source: 'bison',
+      source: DC.BISON_DUPLICATE_RULE.source,
+      code:   DC.BISON_DUPLICATE_RULE.code,
     });
   }
 
   // ── NEW 8: Rule with no base case (all alternatives are directly recursive) ──
+  if (isCheckEnabled(DC.BISON_INFINITE_RECURSION.code, settings))
   for (const [name, rule] of doc.rules) {
     if (rule.alternatives.length === 0) continue;
     // A base case is an alternative that does NOT contain the rule's own name in symbols.
@@ -358,13 +398,36 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
         severity: DiagnosticSeverity.Warning,
         range: rule.location,
         message: `Rule '${name}' has no base case: every alternative is directly recursive. This grammar will loop infinitely.`,
-        source: 'bison',
+        source: DC.BISON_INFINITE_RECURSION.source,
+        code:   DC.BISON_INFINITE_RECURSION.code,
       });
     }
   }
 
   // ── Yacc legacy migration hints ──────────────────────────────────────────
-  diagnostics.push(...computeYaccLegacyHints(lines));
+  diagnostics.push(...computeYaccLegacyHints(lines, settings));
+
+  // ── Version compatibility: warn when a feature requires a newer Bison ────────
+  if (settings.minVersionBison) {
+    for (const { pattern, version, label } of BISON_FEATURE_VERSIONS) {
+      if (!versionLt(settings.minVersionBison, version)) continue;
+      const declEnd = doc.separators.length > 0 ? doc.separators[0] : lines.length;
+      for (let i = 0; i < declEnd; i++) {
+        if (pattern.test(lines[i])) {
+          const col = lines[i].search(/\S/);
+          diagnostics.push({
+            severity: DiagnosticSeverity.Warning,
+            range: Range.create(i, col >= 0 ? col : 0, i, lines[i].length),
+            message: `'${label}' requires Bison ${version}, but your configured minimum is ${settings.minVersionBison}.`,
+            source:          DC.BISON_FEATURE_REQUIRES_VERSION.source,
+            code:            DC.BISON_FEATURE_REQUIRES_VERSION.code,
+            codeDescription: codeDesc(DC.BISON_FEATURE_REQUIRES_VERSION),
+          });
+          break;
+        }
+      }
+    }
+  }
 
   return diagnostics;
 }
@@ -375,7 +438,8 @@ export function computeBisonDiagnostics(doc: BisonDocument, text: string): Diagn
  *
  * These are tolerated (no error) but flagged so the author can modernise.
  */
-function computeYaccLegacyHints(lines: string[]): Diagnostic[] {
+function computeYaccLegacyHints(lines: string[], settings: ExtensionSettings): Diagnostic[] {
+  if (!isCheckEnabled(DC.BISON_YACC_COMPAT.code, settings)) return [];
   const hints: Diagnostic[] = [];
 
   // Map of legacy directive regex → modern replacement message
@@ -423,7 +487,8 @@ function computeYaccLegacyHints(lines: string[]): Diagnostic[] {
           severity: DiagnosticSeverity.Information,
           range: Range.create(i, col >= 0 ? col : 0, i, lines[i].length),
           message,
-          source: 'bison-yacc-compat',
+          source: DC.BISON_YACC_COMPAT.source,
+          code:   DC.BISON_YACC_COMPAT.code,
           tags: [],
         });
         break; // one hint per line is enough
@@ -440,7 +505,8 @@ function computeYaccLegacyHints(lines: string[]): Diagnostic[] {
         message:
           'Yacc-style yylex/yyparse declarations: consider using %define api.pure full ' +
           'and passing parameters via %lex-param / %parse-param (Bison 3.x).',
-        source: 'bison-yacc-compat',
+        source: DC.BISON_YACC_COMPAT.source,
+        code:   DC.BISON_YACC_COMPAT.code,
       });
     }
   }
@@ -448,7 +514,7 @@ function computeYaccLegacyHints(lines: string[]): Diagnostic[] {
   return hints;
 }
 
-export function computeFlexDiagnostics(doc: FlexDocument, text: string): Diagnostic[] {
+export function computeFlexDiagnostics(doc: FlexDocument, text: string, settings: ExtensionSettings = DEFAULT_SETTINGS): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   const lines = text.split(/\r?\n/);
 
@@ -458,7 +524,8 @@ export function computeFlexDiagnostics(doc: FlexDocument, text: string): Diagnos
       severity: DiagnosticSeverity.Error,
       range: Range.create(0, 0, 0, lines[0]?.length || 0),
       message: 'Missing %% separator between definitions and rules sections.',
-      source: 'flex',
+      source: DC.FLEX_MISSING_SEPARATOR.source,
+      code:   DC.FLEX_MISSING_SEPARATOR.code,
     });
     return diagnostics;
   }
@@ -469,11 +536,13 @@ export function computeFlexDiagnostics(doc: FlexDocument, text: string): Diagnos
       severity: DiagnosticSeverity.Error,
       range: unk.location,
       message: `Unknown Flex directive '${unk.name}'. Valid directives are %option, %x, %s, %top, %class.`,
-      source: 'flex',
+      source: DC.FLEX_UNKNOWN_DIRECTIVE.source,
+      code:   DC.FLEX_UNKNOWN_DIRECTIVE.code,
     });
   }
 
   // 2. Undefined start conditions used in rules
+  if (isCheckEnabled(DC.FLEX_UNDEFINED_SC.code, settings))
   for (const [name, refs] of doc.startConditionRefs) {
     if (!doc.startConditions.has(name) && name !== 'INITIAL') {
       for (const ref of refs) {
@@ -481,13 +550,15 @@ export function computeFlexDiagnostics(doc: FlexDocument, text: string): Diagnos
           severity: DiagnosticSeverity.Error,
           range: ref,
           message: `Start condition '${name}' is used but not declared with %x or %s.`,
-          source: 'flex',
+          source: DC.FLEX_UNDEFINED_SC.source,
+          code:   DC.FLEX_UNDEFINED_SC.code,
         });
       }
     }
   }
 
   // 3. Undefined abbreviations used in rules
+  if (isCheckEnabled(DC.FLEX_UNDEFINED_ABBREV.code, settings))
   for (const [name, refs] of doc.abbreviationRefs) {
     if (!doc.abbreviations.has(name)) {
       for (const ref of refs) {
@@ -495,32 +566,39 @@ export function computeFlexDiagnostics(doc: FlexDocument, text: string): Diagnos
           severity: DiagnosticSeverity.Warning,
           range: ref,
           message: `Abbreviation '{${name}}' is used but not defined in the definitions section.`,
-          source: 'flex',
+          source: DC.FLEX_UNDEFINED_ABBREV.source,
+          code:   DC.FLEX_UNDEFINED_ABBREV.code,
         });
       }
     }
   }
 
   // 4. Declared start conditions never used
+  if (isCheckEnabled(DC.FLEX_UNUSED_SC.code, settings))
   for (const [name, decl] of doc.startConditions) {
     if (!doc.startConditionRefs.has(name)) {
       diagnostics.push({
         severity: DiagnosticSeverity.Information,
         range: decl.location,
         message: `Start condition '${name}' is declared but never used in any rule.`,
-        source: 'flex',
+        source: DC.FLEX_UNUSED_SC.source,
+        code:   DC.FLEX_UNUSED_SC.code,
+        tags:   [DiagnosticTag.Unnecessary],
       });
     }
   }
 
   // 5. Declared abbreviations never used
+  if (isCheckEnabled(DC.FLEX_UNUSED_ABBREV.code, settings))
   for (const [name, abbr] of doc.abbreviations) {
     if (!doc.abbreviationRefs.has(name)) {
       diagnostics.push({
         severity: DiagnosticSeverity.Information,
         range: abbr.location,
         message: `Abbreviation '${name}' is defined but never used in any rule pattern.`,
-        source: 'flex',
+        source: DC.FLEX_UNUSED_ABBREV.source,
+        code:   DC.FLEX_UNUSED_ABBREV.code,
+        tags:   [DiagnosticTag.Unnecessary],
       });
     }
   }
@@ -537,7 +615,8 @@ export function computeFlexDiagnostics(doc: FlexDocument, text: string): Diagnos
       severity: DiagnosticSeverity.Error,
       range: Range.create(lines.length - 1, 0, lines.length - 1, 0),
       message: 'Unclosed %{ block — missing %} before end of file.',
-      source: 'flex',
+      source: DC.FLEX_UNCLOSED_BLOCK.source,
+      code:   DC.FLEX_UNCLOSED_BLOCK.code,
     });
   }
 
@@ -590,6 +669,7 @@ export function computeFlexDiagnostics(doc: FlexDocument, text: string): Diagnos
   // Track: catch-all line per context key
   const catchallLine = new Map<string, number>(); // context -> line number
 
+  if (isCheckEnabled(DC.FLEX_UNREACHABLE_RULE.code, settings))
   for (const rule of doc.rules) {
     const ctx = contextKey(rule);
     const pat = rawPattern(rule.pattern);
@@ -604,7 +684,8 @@ export function computeFlexDiagnostics(doc: FlexDocument, text: string): Diagnos
         severity: DiagnosticSeverity.Warning,
         range: rule.location,
         message: `Flex rule '${pat}' may be inaccessible: catch-all pattern at line ${catchLine + 1} will always match first.`,
-        source: 'flex',
+        source: DC.FLEX_UNREACHABLE_RULE.source,
+        code:   DC.FLEX_UNREACHABLE_RULE.code,
       });
     }
 
@@ -615,7 +696,8 @@ export function computeFlexDiagnostics(doc: FlexDocument, text: string): Diagnos
         severity: DiagnosticSeverity.Warning,
         range: rule.location,
         message: `Flex rule '${pat}' is inaccessible: identical pattern already defined at line ${firstLine + 1}.`,
-        source: 'flex',
+        source: DC.FLEX_UNREACHABLE_RULE.source,
+        code:   DC.FLEX_UNREACHABLE_RULE.code,
       });
     } else {
       seenPatterns.set(dupKey, lineNum);
@@ -628,6 +710,7 @@ export function computeFlexDiagnostics(doc: FlexDocument, text: string): Diagnos
   }
 
   // ── NEW 5: Invalid regex patterns ────────────────────────────────────────────
+  if (isCheckEnabled(DC.FLEX_INVALID_PATTERN.code, settings))
   for (const rule of doc.rules) {
     const pat = rawPattern(rule.pattern);
     // Skip special/trivial patterns that we know are valid
@@ -638,7 +721,8 @@ export function computeFlexDiagnostics(doc: FlexDocument, text: string): Diagnos
         severity: DiagnosticSeverity.Error,
         range: rule.location,
         message: `Invalid regex pattern '${pat}': ${err}.`,
-        source: 'flex',
+        source: DC.FLEX_INVALID_PATTERN.source,
+        code:   DC.FLEX_INVALID_PATTERN.code,
       });
     }
   }
@@ -647,7 +731,7 @@ export function computeFlexDiagnostics(doc: FlexDocument, text: string): Diagnos
   // In Flex, longest match wins; for equal-length matches the FIRST rule wins.
   // If an identifier-like pattern appears before a literal keyword in the same
   // start-condition context, the keyword rule can never match.
-  {
+  if (isCheckEnabled(DC.FLEX_UNREACHABLE_RULE.code, settings)) {
     const rulesByContext = new Map<string, Array<{ rule: typeof doc.rules[0]; pat: string }>>();
     for (const rule of doc.rules) {
       const ctx = contextKey(rule);
@@ -680,7 +764,8 @@ export function computeFlexDiagnostics(doc: FlexDocument, text: string): Diagnos
               severity: DiagnosticSeverity.Warning,
               range: entries[litIdx].rule.location,
               message: `Flex rule '${word}': this keyword may be shadowed by the more general pattern '${wordPat}' at line ${entries[wordIdx].rule.location.start.line + 1}. Place keyword rules before identifier patterns.`,
-              source: 'flex',
+              source: DC.FLEX_UNREACHABLE_RULE.source,
+              code:   DC.FLEX_UNREACHABLE_RULE.code,
             });
           }
         }
@@ -689,7 +774,7 @@ export function computeFlexDiagnostics(doc: FlexDocument, text: string): Diagnos
   }
 
   // ── NEW 8: Multiple <<EOF>> rules for the same start condition ───────────────
-  {
+  if (isCheckEnabled(DC.FLEX_DUPLICATE_EOF.code, settings)) {
     const eofContexts = new Map<string, number>(); // context -> first line
     for (const rule of doc.rules) {
       const pat = rawPattern(rule.pattern);
@@ -700,7 +785,8 @@ export function computeFlexDiagnostics(doc: FlexDocument, text: string): Diagnos
             severity: DiagnosticSeverity.Warning,
             range: rule.location,
             message: `Duplicate <<EOF>> rule for context '${ctx}': first defined at line ${eofContexts.get(ctx)! + 1}. Only the first one will be used.`,
-            source: 'flex',
+            source: DC.FLEX_DUPLICATE_EOF.source,
+            code:   DC.FLEX_DUPLICATE_EOF.code,
           });
         } else {
           eofContexts.set(ctx, rule.location.start.line);
@@ -710,14 +796,15 @@ export function computeFlexDiagnostics(doc: FlexDocument, text: string): Diagnos
   }
 
   // ── NEW 9: %option stack declared but stack functions never used ──────────────
-  if (doc.options.has('stack')) {
+  if (doc.options.has('stack') && isCheckEnabled(DC.FLEX_UNUSED_OPTION.code, settings)) {
     const stackUsed = text.includes('yy_push_state') || text.includes('yy_pop_state') || text.includes('yy_top_state');
     if (!stackUsed) {
       diagnostics.push({
         severity: DiagnosticSeverity.Warning,
         range: doc.options.get('stack')!.location,
         message: '%option stack is declared but yy_push_state/yy_pop_state are never called. Remove this option if the state stack is not needed.',
-        source: 'flex',
+        source: DC.FLEX_UNUSED_OPTION.source,
+        code:   DC.FLEX_UNUSED_OPTION.code,
       });
     }
   }
@@ -730,14 +817,15 @@ export function computeFlexDiagnostics(doc: FlexDocument, text: string): Diagnos
   const isReflex = doc.options.has('bison-complete') || doc.options.has('bison-cc-parser')
     || doc.options.has('bison-locations') || doc.options.has('namespace')
     || doc.options.has('lexer') || doc.options.has('unicode') || doc.options.has('yywrap');
-  if (!isReflex && !doc.options.has('noyywrap')) {
+  if (!isReflex && !doc.options.has('noyywrap') && isCheckEnabled(DC.FLEX_MISSING_YYWRAP.code, settings)) {
     const hasYywrap = text.includes('yywrap');
     if (!hasYywrap) {
       diagnostics.push({
         severity: DiagnosticSeverity.Warning,
         range: Range.create(0, 0, 0, lines[0]?.length ?? 0),
         message: 'Missing %option noyywrap and no yywrap() function defined. Add "%option noyywrap" to prevent linker errors, or define int yywrap(void) { return 1; }.',
-        source: 'flex',
+        source: DC.FLEX_MISSING_YYWRAP.source,
+        code:   DC.FLEX_MISSING_YYWRAP.code,
       });
     }
   }

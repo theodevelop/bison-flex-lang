@@ -6,6 +6,8 @@ import {
   Location,
 } from 'vscode-languageserver';
 import { BisonDocument, FlexDocument } from '../parser/types';
+import { DC } from './diagnosticCodes';
+import { ExtensionSettings, DEFAULT_SETTINGS, isCheckEnabled } from './settings';
 
 /**
  * Cross-file token synchronization between Bison (.y) and Flex (.l) files.
@@ -50,6 +52,7 @@ export function computeBisonCrossFileDiagnostics(
   bisonDoc: BisonDocument,
   flexText: string,
   flexUri: string,
+  settings: ExtensionSettings = DEFAULT_SETTINGS,
 ): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   const returnedTokens = extractReturnedTokens(flexText);
@@ -65,7 +68,8 @@ export function computeBisonCrossFileDiagnostics(
         severity: DiagnosticSeverity.Warning,
         range: decl.location,
         message: `Token '${name}' is declared but never returned in the companion lexer file.`,
-        source: 'bison',
+        source: DC.BISON_MISSING_LEXER_RETURN.source,
+        code:   DC.BISON_MISSING_LEXER_RETURN.code,
       };
 
       // Add related information pointing to the flex file
@@ -76,7 +80,9 @@ export function computeBisonCrossFileDiagnostics(
         ),
       ];
 
-      diagnostics.push(diag);
+      if (isCheckEnabled(DC.BISON_MISSING_LEXER_RETURN.code, settings)) {
+        diagnostics.push(diag);
+      }
     }
   }
 
@@ -91,6 +97,7 @@ export function computeFlexCrossFileDiagnostics(
   flexText: string,
   bisonDoc: BisonDocument,
   bisonUri: string,
+  settings: ExtensionSettings = DEFAULT_SETTINGS,
 ): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   const returnedTokens = extractReturnedTokens(flexText);
@@ -106,7 +113,8 @@ export function computeFlexCrossFileDiagnostics(
           severity: DiagnosticSeverity.Warning,
           range: ref,
           message: `Token '${name}' is returned but not declared with %token in the companion grammar file.`,
-          source: 'flex',
+          source: DC.FLEX_MISSING_GRAMMAR_TOKEN.source,
+          code:   DC.FLEX_MISSING_GRAMMAR_TOKEN.code,
         };
 
         diag.relatedInformation = [
@@ -116,7 +124,9 @@ export function computeFlexCrossFileDiagnostics(
           ),
         ];
 
-        diagnostics.push(diag);
+        if (isCheckEnabled(DC.FLEX_MISSING_GRAMMAR_TOKEN.code, settings)) {
+          diagnostics.push(diag);
+        }
       }
     }
   }

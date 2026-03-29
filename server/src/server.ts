@@ -46,6 +46,7 @@ import { getDocumentSymbols } from './providers/documentSymbols';
 import { getWorkspaceSymbols } from './providers/workspaceSymbols';
 import { getCodeLenses } from './providers/codeLens';
 import { computeCmakeDiagnostic } from './providers/cmake';
+import { ExtensionSettings, DEFAULT_SETTINGS } from './providers/settings';
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
@@ -80,12 +81,19 @@ connection.onInitialize((_params: InitializeParams): InitializeResult => {
 
 // Revalidate on document change
 documents.onDidChangeContent((change) => {
-  validateDocument(change.document);
+  void validateDocument(change.document);
 });
 
 documents.onDidClose((event) => {
   documentModels.delete(event.document.uri);
   connection.sendDiagnostics({ uri: event.document.uri, diagnostics: [] });
+});
+
+// Re-validate all open documents when the user changes settings
+connection.onDidChangeConfiguration(() => {
+  for (const doc of documents.all()) {
+    void validateDocument(doc);
+  }
 });
 
 /** Find the companion file (.y↔.l) in the same directory. */
@@ -118,7 +126,26 @@ function readCompanionText(companionUri: string, companionPath: string): string 
   }
 }
 
-function validateDocument(textDoc: TextDocument): void {
+async function validateDocument(textDoc: TextDocument): Promise<void> {
+  // Read user settings for this document (falls back to DEFAULT_SETTINGS on error)
+  let settings: ExtensionSettings = DEFAULT_SETTINGS;
+  try {
+    const raw = await connection.workspace.getConfiguration({
+      scopeUri: textDoc.uri,
+      section: 'bisonFlex',
+    });
+    if (raw) {
+      settings = {
+        minVersionBison: typeof raw.minVersionBison === 'string' ? raw.minVersionBison : '',
+        minVersionFlex:  typeof raw.minVersionFlex  === 'string' ? raw.minVersionFlex  : '',
+        disabledChecks:  Array.isArray(raw.disabledChecks) ? raw.disabledChecks : [],
+      };
+    }
+  } catch {
+    // getConfiguration can fail when the workspace connection is not yet ready;
+    // silently fall back to defaults.
+  }
+
   const text = textDoc.getText();
   const languageId = textDoc.languageId;
   let model: DocumentModel;
@@ -126,14 +153,14 @@ function validateDocument(textDoc: TextDocument): void {
 
   if (languageId === 'bison') {
     model = parseBisonDocument(text);
-    diagnostics = computeBisonDiagnostics(model as BisonDocument, text);
+    diagnostics = computeBisonDiagnostics(model as BisonDocument, text, settings);
 
     // Cross-file: check tokens against companion .l file
     const companion = findCompanionFile(textDoc.uri, 'bison');
     if (companion) {
       const flexText = readCompanionText(companion.uri, companion.filePath);
       if (flexText) {
-        diagnostics.push(...computeBisonCrossFileDiagnostics(model as BisonDocument, flexText, companion.uri));
+        diagnostics.push(...computeBisonCrossFileDiagnostics(model as BisonDocument, flexText, companion.uri, settings));
       }
     }
 
@@ -143,7 +170,7 @@ function validateDocument(textDoc: TextDocument): void {
 
   } else if (languageId === 'flex') {
     model = parseFlexDocument(text);
-    diagnostics = computeFlexDiagnostics(model as FlexDocument, text);
+    diagnostics = computeFlexDiagnostics(model as FlexDocument, text, settings);
 
     // Cross-file: check returned tokens against companion .y file
     const companion = findCompanionFile(textDoc.uri, 'flex');
@@ -151,7 +178,7 @@ function validateDocument(textDoc: TextDocument): void {
       const bisonText = readCompanionText(companion.uri, companion.filePath);
       if (bisonText) {
         const bisonDoc = parseBisonDocument(bisonText);
-        diagnostics.push(...computeFlexCrossFileDiagnostics(text, bisonDoc, companion.uri));
+        diagnostics.push(...computeFlexCrossFileDiagnostics(text, bisonDoc, companion.uri, settings));
       }
     }
 
