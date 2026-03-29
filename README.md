@@ -257,27 +257,41 @@ The extension uses a **Language Server Protocol (LSP)** architecture:
 
 ---
 
+## Community
+
+| | |
+|---|---|
+| 💬 [General](https://github.com/theodevelop/bison-flex-lang/discussions/categories/general) | Usage tips, feedback, anything goes |
+| 💡 [Ideas](https://github.com/theodevelop/bison-flex-lang/discussions/categories/ideas) | Feature proposals and brainstorming |
+| 🙏 [Q&A](https://github.com/theodevelop/bison-flex-lang/discussions/categories/q-a) | Questions about the extension |
+| 📣 [Announcements](https://github.com/theodevelop/bison-flex-lang/discussions/categories/announcements) | Releases and important updates |
+
+---
+
 ## Contributing
 
-Contributions are welcome! Here's how to get started:
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for full details.
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Install dependencies: `npm install`
-4. Build in watch mode: `npm run compile:watch`
-5. Press `F5` to test in the Extension Development Host
-6. Commit your changes and open a Pull Request
+Quick start:
+
+1. Fork the repository and branch off `dev`
+2. `npm install && npm run compile`
+3. Press `F5` to test in the Extension Development Host
+4. Add or update tests, then open a PR against `dev`
 
 ### Running Tests
 
 ```bash
 npx ts-node --project server/tsconfig.json tests/test-parsers.ts
+TS_NODE_PROJECT=tsconfig.base.json npx ts-node tests/test-diagnostic-codes.ts
+TS_NODE_PROJECT=tsconfig.base.json npx ts-node tests/test-version-settings.ts
+TS_NODE_PROJECT=tsconfig.base.json npx ts-node tests/test-fix-it-hints.ts
 ```
 
 ### Building for Production
 
 ```bash
-npm run package          # Production webpack build
+npm run compile
 npx vsce package         # Create .vsix file
 ```
 

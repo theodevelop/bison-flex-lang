@@ -87,4 +87,13 @@ Use the [Bug Report](https://github.com/theodevelop/bison-flex-lang/issues/new?t
 
 ## Requesting a feature
 
-Use the [Feature Request](https://github.com/theodevelop/bison-flex-lang/issues/new?template=feature_request.yml) template, or open a [Discussion](https://github.com/theodevelop/bison-flex-lang/discussions) for larger ideas.
+Use the [Feature Request](https://github.com/theodevelop/bison-flex-lang/issues/new?template=feature_request.yml) template, or open a [💡 Ideas discussion](https://github.com/theodevelop/bison-flex-lang/discussions/categories/ideas) for larger ideas before formalising them into an issue.
+
+## Community
+
+| | |
+|---|---|
+| 💬 [General](https://github.com/theodevelop/bison-flex-lang/discussions/categories/general) | Usage tips, feedback, anything goes |
+| 💡 [Ideas](https://github.com/theodevelop/bison-flex-lang/discussions/categories/ideas) | Feature proposals and brainstorming |
+| 🙏 [Q&A](https://github.com/theodevelop/bison-flex-lang/discussions/categories/q-a) | Questions about the extension |
+| 📣 [Announcements](https://github.com/theodevelop/bison-flex-lang/discussions/categories/announcements) | Releases and important updates |
