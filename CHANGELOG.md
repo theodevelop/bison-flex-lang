@@ -2,6 +2,36 @@
 
 All notable changes to the **Bison/Flex Language Support** extension will be documented in this file.
 
+## [1.4.0] - 2026-03-30
+
+### Added
+
+- **Fix-it hints (Code Actions)** — 22 quick fixes triggered directly from the Problems panel or the lightbulb (`Ctrl+.`), covering the majority of Bison and Flex diagnostics:
+  - *Bison:* insert `%%`, declare `%token`, insert `%empty`, remove unused token, remove unknown directive, add rule stub, add `%type <todo>` declaration, remove invalid `%start`, add `%start`, close `%{` block, and 4 yacc-compat replacements (`%error-verbose`, `%name-prefix`, `%pure-parser`, `%binary`)
+  - *Flex:* insert `%%`, define abbreviation stub, remove unused abbreviation, remove unused start condition, remove unknown directive, declare `%x SC_NAME`, remove unused `%option`, remove duplicate `<<EOF>>`, add `%option noyywrap`, close `%{` block, remove inaccessible rule
+
+- **Version-gated diagnostics** — three new settings to target a specific toolchain:
+  - `bisonFlex.minVersionBison` — suppress checks that require Bison ≥ the given version (e.g. `"3.0"`)
+  - `bisonFlex.minVersionFlex` — same for Flex
+  - `bisonFlex.disabledChecks` — array of diagnostic codes to suppress entirely (e.g. `["bison/shift-reduce", "flex/missing-yywrap"]`)
+  - New `bison/feature-requires-version` diagnostic when a `%define` feature exceeds the configured min version
+
+### Changed
+
+- Every diagnostic now carries a `source` field (`"bison"`, `"bison-yacc-compat"`, or `"flex"`), a `code` slug (e.g. `bison/unused-token`), and a `codeDescription.href` link to the GNU documentation — the code is rendered as a clickable link in the Problems panel
+- `DiagnosticTag.Unnecessary` applied to unused tokens, unused rules, unused start conditions, and unused abbreviations (symbols appear greyed-out in the editor)
+
+### Fixed
+
+- **Bison — `DiagnosticTag.Unnecessary` column offset**: `parseTokenNames()` used a relative column index when highlighting unused token names, causing the grey underline to start mid-token instead of at the first character
+
+### CI
+
+- Pipeline now triggers on `dev` branch (push and pull_request) in addition to `main`
+- New step: `vsce package` + artifact upload (`extension-vsix`, 30-day retention)
+
+---
+
 ## [1.1.3] - 2026-03-23
 
 ### Fixed
