@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "dev"]
   pull_request:
-    branches: ["main"]
+    branches: ["main", "dev"]
 
 jobs:
   build-and-test:
@@ -27,3 +27,13 @@ jobs:
 
       - name: Run parser tests
         run: npx ts-node --project server/tsconfig.json tests/test-parsers.ts
+
+      - name: Package VSIX
+        run: npx vsce package --no-dependencies -o extension.vsix
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-vsix
+          path: extension.vsix
+          retention-days: 30
