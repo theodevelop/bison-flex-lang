@@ -272,8 +272,15 @@ export function parseFlexDocument(text: string): FlexDocument {
     {
       const scBlockMatch = trimmed.match(/^<([A-Z_][A-Z0-9_]*(?:,[A-Z_][A-Z0-9_]*)*)>\s*\{/);
       if (scBlockMatch) {
-        scBlockStack.push(scBlockMatch[1].split(','));
-        // This line is the block header; no rule to push.
+        const conds = scBlockMatch[1].split(',');
+        scBlockStack.push(conds);
+        // Record the start condition references from the block header line
+        for (const cond of conds) {
+          const col = line.indexOf(cond);
+          const range = Range.create(i, col >= 0 ? col : 0, i, (col >= 0 ? col : 0) + cond.length);
+          if (!doc.startConditionRefs.has(cond)) doc.startConditionRefs.set(cond, []);
+          doc.startConditionRefs.get(cond)!.push(range);
+        }
         continue;
       }
       // Multi-line header start: <SC1,   (no closing > on this line)
