@@ -198,7 +198,17 @@ export function parseFlexDocument(text: string): FlexDocument {
   }
 
   // Phase 3: Parse rules section
-  let braceDepth = 0;
+  //
+  // Two separate depth counters are needed:
+  //   actionDepth  — depth of C action blocks ({ ... }); content is skipped
+  //   scBlockStack — stack of start-condition lists for <SC>{...} blocks;
+  //                  rules INSIDE these blocks inherit the SC names.
+  //
+  // A <SC>{...} block is NOT an action block: its content is Flex rules.
+  // Action blocks nested inside a <SC> block increment actionDepth as usual.
+  let actionDepth = 0;
+  const scBlockStack: string[][] = [];   // each entry = SC list for one nesting level
+  let pendingScHeader: string | null = null; // accumulates multi-line <SC1,\nSC2>{ headers
   inBlockComment = false;
 
   for (let i = rulesStart; i < rulesEnd; i++) {
@@ -218,16 +228,70 @@ export function parseFlexDocument(text: string): FlexDocument {
     // Skip empty lines and line comments
     if (!trimmed || trimmed.startsWith('//')) continue;
 
-    // Skip action blocks (brace-delimited C code)
-    if (braceDepth > 0) {
-      for (const ch of line) {
-        if (ch === '{') braceDepth++;
-        if (ch === '}') braceDepth = Math.max(0, braceDepth - 1);
+    // ── Handle multi-line <SC1,\nSC2>{ header continuation ────────────────────
+    if (pendingScHeader !== null) {
+      const closeIdx = trimmed.indexOf('>');
+      if (closeIdx >= 0) {
+        // Collect any additional SC names before the >
+        const before = trimmed.substring(0, closeIdx);
+        const moreConds = before.match(/[A-Z_][A-Z0-9_]*/g);
+        if (moreConds) pendingScHeader += ',' + moreConds.join(',');
+        const conds = pendingScHeader.replace(/^,+/, '').split(',').filter(s => s.length > 0);
+        pendingScHeader = null;
+        // Expect '{' right after '>' to open the SC block
+        const after = trimmed.substring(closeIdx + 1).trim();
+        if (after === '{') {
+          scBlockStack.push(conds);
+          // actionDepth stays 0; the { is the SC block opening, not an action block
+        }
+      } else {
+        // Still accumulating conditions from this line
+        const moreConds = trimmed.match(/[A-Z_][A-Z0-9_]*/g);
+        if (moreConds) pendingScHeader += ',' + moreConds.join(',');
       }
       continue;
     }
 
-    // Extract start condition references: <SC_NAME> or <SC1,SC2>
+    // ── Skip C action blocks ───────────────────────────────────────────────────
+    if (actionDepth > 0) {
+      for (const ch of line) {
+        if (ch === '{') actionDepth++;
+        if (ch === '}') actionDepth = Math.max(0, actionDepth - 1);
+      }
+      continue;
+    }
+
+    // ── SC block closing } (at SC block level, actionDepth === 0) ─────────────
+    if (scBlockStack.length > 0 && trimmed === '}') {
+      scBlockStack.pop();
+      continue;
+    }
+
+    // ── SC block opener: <SC1,SC2>{ ───────────────────────────────────────────
+    // Single-line header: <SC1,SC2>{ or <SC1,SC2> {
+    {
+      const scBlockMatch = trimmed.match(/^<([A-Z_][A-Z0-9_]*(?:,[A-Z_][A-Z0-9_]*)*)>\s*\{/);
+      if (scBlockMatch) {
+        const conds = scBlockMatch[1].split(',');
+        scBlockStack.push(conds);
+        // Record the start condition references from the block header line
+        for (const cond of conds) {
+          const col = line.indexOf(cond);
+          const range = Range.create(i, col >= 0 ? col : 0, i, (col >= 0 ? col : 0) + cond.length);
+          if (!doc.startConditionRefs.has(cond)) doc.startConditionRefs.set(cond, []);
+          doc.startConditionRefs.get(cond)!.push(range);
+        }
+        continue;
+      }
+      // Multi-line header start: <SC1,   (no closing > on this line)
+      const scMultiStart = trimmed.match(/^<([A-Z_][A-Z0-9_]*(?:,[A-Z_][A-Z0-9_]*)*,\s*)$/);
+      if (scMultiStart) {
+        pendingScHeader = scMultiStart[1].replace(/,\s*$/, '');
+        continue;
+      }
+    }
+
+    // ── Extract start condition references: <SC_NAME> or <SC1,SC2> ────────────
     // Exclude <<EOF>> which is a special pattern, not a start condition
     const scRefs = line.matchAll(/(?<!<)<([A-Z_][A-Z0-9_]*(?:,[A-Z_][A-Z0-9_]*)*)>(?!>)/g);
     for (const m of scRefs) {
@@ -242,7 +306,7 @@ export function parseFlexDocument(text: string): FlexDocument {
       }
     }
 
-    // Extract abbreviation references: {name} (but not C code {})
+    // ── Extract abbreviation references: {name} (but not C code {}) ───────────
     // Only match {name} where name is a valid identifier
     const abbrRefs = line.matchAll(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g);
     for (const m of abbrRefs) {
@@ -259,11 +323,15 @@ export function parseFlexDocument(text: string): FlexDocument {
       }
     }
 
-    // Build rule entry
-    const startConditions: string[] = [];
+    // ── Build rule entry ───────────────────────────────────────────────────────
+    // Start conditions: explicit <SC> prefix on this line PLUS any inherited from <SC>{ block
+    const inherited = scBlockStack.length > 0 ? scBlockStack[scBlockStack.length - 1] : [];
+    const startConditions: string[] = [...inherited];
     const scMatch = trimmed.match(/^<([A-Z_][A-Z0-9_]*(?:,[A-Z_][A-Z0-9_]*)*)>/);
     if (scMatch) {
-      startConditions.push(...scMatch[1].split(','));
+      for (const c of scMatch[1].split(',')) {
+        if (!startConditions.includes(c)) startConditions.push(c);
+      }
     }
 
     doc.rules.push({
@@ -272,10 +340,10 @@ export function parseFlexDocument(text: string): FlexDocument {
       location: Range.create(i, 0, i, line.length),
     });
 
-    // Track braces for action blocks
+    // ── Track action brace depth ───────────────────────────────────────────────
     for (const ch of line) {
-      if (ch === '{') braceDepth++;
-      if (ch === '}') braceDepth = Math.max(0, braceDepth - 1);
+      if (ch === '{') actionDepth++;
+      if (ch === '}') actionDepth = Math.max(0, actionDepth - 1);
     }
   }
 

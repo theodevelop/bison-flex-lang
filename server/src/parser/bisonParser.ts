@@ -335,10 +335,22 @@ export function parseBisonDocument(text: string): BisonDocument {
       }
     }
 
-    // Track braces
+    // Track braces — and detect when a multi-line action block opens.
+    // When braceDepth goes from 0 to >0, a mid-rule action block has started.
+    // Bison counts each action block as a grammar symbol ($N position), so we
+    // add a '__midaction__' sentinel to the current alternative's symbol list.
+    // Inline balanced blocks (e.g. `{ $$ = $1; }` on the same line) are already
+    // counted by extractSymbols; only the unbalanced-open case needs handling here.
+    const prevDepth = braceDepth;
     for (const ch of line) {
       if (ch === '{') braceDepth++;
       if (ch === '}') braceDepth = Math.max(0, braceDepth - 1);
+    }
+    if (prevDepth === 0 && braceDepth > 0 && currentRule) {
+      const curRule = doc.rules.get(currentRule);
+      if (curRule && curRule.alternatives.length > 0) {
+        curRule.alternatives[curRule.alternatives.length - 1].symbols.push('__midaction__');
+      }
     }
   }
 
@@ -388,7 +400,7 @@ function replaceStringLiterals(text: string): string {
  */
 function extractSymbols(text: string): string[] {
   const cleaned = replaceStringLiterals(text)
-    .replace(/\{[^}]*\}/g, ' ')                   // remove inline actions
+    .replace(/\{[^}]*\}/g, ' __midaction__ ')     // inline actions count as a symbol ($N position)
     .replace(/%prec\s+\S+/g, ' ')                 // remove %prec TOKEN
     .replace(/%empty/g, ' ')                      // remove %empty
     .replace(/\/\/.*$/g, ' ')                     // remove line comments
@@ -422,23 +434,85 @@ function getFirstSymbol(text: string): string | undefined {
 }
 
 function parseTokenNames(text: string, type: string | undefined, lineNum: number, doc: BisonDocument, colOffset: number = 0): void {
-  // Match patterns like: NAME "alias" VALUE  or just NAME
-  // Use [a-zA-Z_][a-zA-Z0-9_]* to support lowercase letters and digits in token names.
-  const regex = /([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:("(?:[^"\\]|\\.)*")\s*)?(?:(\d+)\s*)?/g;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(text)) !== null) {
-    const name = match[1];
-    const alias = match[2]?.replace(/"/g, '');
-    const value = match[3] ? parseInt(match[3]) : undefined;
-    const col = colOffset + match.index;
-    const decl: TokenDeclaration = {
-      name,
-      type,
-      alias,
-      location: Range.create(lineNum, col, lineNum, col + name.length),
-      value,
-    };
-    doc.tokens.set(name, decl);
+  // Bison token declaration syntax: NAME [NUMBER] ["alias"]  (repeating)
+  // The optional NUMBER comes BEFORE the optional "alias".
+  // We use a character scanner to correctly skip string literals and numeric values
+  // so that words inside "end of file" are not mistaken for token names.
+  let pos = 0;
+
+  while (pos < text.length) {
+    // Skip whitespace
+    while (pos < text.length && (text[pos] === ' ' || text[pos] === '\t')) pos++;
+    if (pos >= text.length) break;
+
+    const ch = text[pos];
+
+    // Skip string literals (these are aliases for the previous token, not new token names)
+    if (ch === '"') {
+      pos++;
+      while (pos < text.length && text[pos] !== '"') {
+        if (text[pos] === '\\') pos++;  // skip escaped character
+        pos++;
+      }
+      pos++;  // skip closing quote
+      continue;
+    }
+
+    // Skip numeric token values
+    if (ch >= '0' && ch <= '9') {
+      while (pos < text.length && text[pos] >= '0' && text[pos] <= '9') pos++;
+      continue;
+    }
+
+    // Match identifier (token name)
+    if (/[a-zA-Z_]/.test(ch)) {
+      const nameStart = pos;
+      while (pos < text.length && /[a-zA-Z0-9_]/.test(text[pos])) pos++;
+      const name = text.substring(nameStart, pos);
+      const col = colOffset + nameStart;
+
+      // Peek ahead: optional NUMBER then optional "alias"
+      let peekPos = pos;
+      let alias: string | undefined;
+      let value: number | undefined;
+
+      // Skip whitespace
+      while (peekPos < text.length && (text[peekPos] === ' ' || text[peekPos] === '\t')) peekPos++;
+
+      // Optional numeric token code (e.g. %token TOKEN_EOF 0 "end of file")
+      if (peekPos < text.length && text[peekPos] >= '0' && text[peekPos] <= '9') {
+        const numStart = peekPos;
+        while (peekPos < text.length && text[peekPos] >= '0' && text[peekPos] <= '9') peekPos++;
+        value = parseInt(text.substring(numStart, peekPos), 10);
+        pos = peekPos;
+        while (peekPos < text.length && (text[peekPos] === ' ' || text[peekPos] === '\t')) peekPos++;
+      }
+
+      // Optional string alias (e.g. %token PLUS "+" or %token TOKEN_EOF 0 "end of file")
+      if (peekPos < text.length && text[peekPos] === '"') {
+        peekPos++;  // skip opening quote
+        const aliasStart = peekPos;
+        while (peekPos < text.length && text[peekPos] !== '"') {
+          if (text[peekPos] === '\\') peekPos++;  // skip escaped character
+          peekPos++;
+        }
+        alias = text.substring(aliasStart, peekPos);
+        peekPos++;  // skip closing quote
+        pos = peekPos;
+      }
+
+      doc.tokens.set(name, {
+        name,
+        type,
+        alias,
+        location: Range.create(lineNum, col, lineNum, col + name.length),
+        value,
+      });
+      continue;
+    }
+
+    // Skip any other character (e.g. punctuation, stray closing >)
+    pos++;
   }
 }
 
