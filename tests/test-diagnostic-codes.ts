@@ -111,8 +111,9 @@ console.log('\n=== TEST: Bison diagnostic codes ===');
 }
 
 // out-of-bounds + href
+// Rule `expr : A { $3; }` has 2 symbols: A(1) + mid-rule action(2).  $3 > 2 → OOB.
 {
-  const src = `%token A\n%%\nexpr : A { $2; } ;\n%%\n`;
+  const src = `%token A\n%%\nexpr : A { $3; } ;\n%%\n`;
   const doc = parseBisonDocument(src);
   const diags = computeBisonDiagnostics(doc, src);
   const d = diags.find(x => x.message.includes('out of bounds'));
@@ -319,6 +320,61 @@ const bisonDocCross = parseBisonDocument(bisonSrcCross);
   const d = diags.find(x => x.message.includes('UNDECLARED'));
   assert(d?.code === 'flex/missing-grammar-token', 'flex/missing-grammar-token code',       d?.code);
   assert(d?.source === 'flex',                      'missing-grammar-token source is flex',  d?.source);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. Regression tests for reported bugs
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n=== TEST: Bug regressions ===');
+
+// Issue #22 — %token with numeric value + string alias: words inside "end of file"
+// must NOT be treated as token names.
+{
+  const src = '%token TOKEN_EOF 0 "end of file"\n%token THREEDIMENSIONAL "3D"\n%token ACTUAL\n%%\nexpr : TOKEN_EOF THREEDIMENSIONAL ACTUAL ;\n%%\n';
+  const doc = parseBisonDocument(src);
+  assert(doc.tokens.has('TOKEN_EOF'),          '#22 TOKEN_EOF is declared');
+  assert(doc.tokens.get('TOKEN_EOF')?.value === 0,               '#22 TOKEN_EOF value = 0');
+  assert(doc.tokens.get('TOKEN_EOF')?.alias === 'end of file',   '#22 TOKEN_EOF alias = "end of file"');
+  assert(!doc.tokens.has('end'),               '#22 "end" is NOT a token (was inside alias)');
+  assert(!doc.tokens.has('of'),                '#22 "of" is NOT a token');
+  assert(!doc.tokens.has('file'),              '#22 "file" is NOT a token');
+  assert(doc.tokens.has('THREEDIMENSIONAL'),   '#22 THREEDIMENSIONAL is declared');
+  assert(doc.tokens.get('THREEDIMENSIONAL')?.alias === '3D', '#22 THREEDIMENSIONAL alias = "3D"');
+  assert(doc.tokens.has('ACTUAL'),             '#22 ACTUAL is declared');
+  const diags22 = computeBisonDiagnostics(doc, src);
+  const unusedTokenDiags = diags22.filter(d => d.code === 'bison/unused-token');
+  assert(unusedTokenDiags.length === 0, '#22 no false bison/unused-token diagnostics');
+}
+
+// Issue #21 — mid-rule action blocks count as grammar symbols.
+// In `testrule: A B { } D { $4 }`, $4 refers to D (symbol #4), not out of bounds.
+{
+  const src = '%token A B D\n%%\ntestrule : A B { } D { $4; } ;\n%%\n';
+  const doc = parseBisonDocument(src);
+  const diags21 = computeBisonDiagnostics(doc, src);
+  const oob = diags21.filter(d => d.code === 'bison/out-of-bounds');
+  assert(oob.length === 0, '#21 $4 in rule with mid-action is not out-of-bounds (A=1 B=2 {action}=3 D=4)');
+}
+{
+  // $6 IS out of bounds: A(1) B(2) {action}(3) D(4) {action2}(5) — only 5 symbols
+  const src = '%token A B D\n%%\ntestrule : A B { } D { $6; } ;\n%%\n';
+  const doc = parseBisonDocument(src);
+  const diags21b = computeBisonDiagnostics(doc, src);
+  const oob5 = diags21b.filter(d => d.code === 'bison/out-of-bounds');
+  assert(oob5.length === 1, '#21 $6 IS out-of-bounds (5 symbols: A B {action} D {action2})');
+}
+
+// Issue #23 — rules inside a <SC>{ ... } block inherit the start condition.
+// A catch-all `.` in INITIAL should NOT shadow rules in an exclusive SC block.
+{
+  const src = `%x MY_STATE\n%%\n.\t{}\n<MY_STATE>{\n  [a-z]+ {}\n  [0-9]+ {}\n}\n%%\n`;
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  // Rules inside <MY_STATE>{ } should have startConditions = ['MY_STATE'], not []
+  const rulesInBlock = (doc.rules as { startConditions: string[] }[]).filter(r => r.startConditions.includes('MY_STATE'));
+  assert(rulesInBlock.length === 2, '#23 rules inside <SC>{ block inherit start condition');
+  const diags23 = computeFlexDiagnostics(doc, src);
+  const unreachable = diags23.filter(d => d.code === 'flex/unreachable-rule');
+  assert(unreachable.length === 0, '#23 no false flex/unreachable-rule for exclusive SC block');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
