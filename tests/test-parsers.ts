@@ -1186,13 +1186,14 @@ console.log('\n\n=== TEST: Multi-line rule continuation ===\n');
   );
   assert(emptyDiags.length === 0, `Multi-line 'expr:' does not trigger false %empty`);
 
-  // — Negative case: $4 in a 3-symbol multi-line alt must still be caught ——
+  // — Negative case: $5 in a 4-symbol alt (3 grammar symbols + 1 action) must still be caught ——
+  // With mid-rule action counting: expr(1) PLUS(2) NUMBER(3) {action}(4) — $5 is OOB.
   const bisonOob = [
     '%token NUMBER PLUS',
     '%%',
     'start : expr ;',
     'expr :',
-    '    expr PLUS NUMBER   { $$ = $4; }',  // 3 symbols, $4 out of bounds
+    '    expr PLUS NUMBER   { $$ = $5; }',  // 4 symbols (3 + action), $5 out of bounds
     '  | NUMBER',
     '  ;',
     '%%',
@@ -1200,8 +1201,8 @@ console.log('\n\n=== TEST: Multi-line rule continuation ===\n');
 
   const docOob = parseBisonDocument(bisonOob);
   const oobDiags2 = computeBisonDiagnostics(docOob, bisonOob)
-    .filter(d => d.message.includes('$4') && d.message.includes('out of bounds'));
-  assert(oobDiags2.length >= 1, `$4 in 3-symbol multi-line alt is still detected`);
+    .filter(d => d.message.includes('$5') && d.message.includes('out of bounds'));
+  assert(oobDiags2.length >= 1, `$5 in 3-symbol multi-line alt is still detected`);
   assert(oobDiags2[0]?.severity === 1, `Multi-line $n out-of-bounds is an Error`);
 
   // — Multi-line action block: $n refs are now tracked across lines ———————————
@@ -1872,21 +1873,22 @@ console.log('\n\n=== TEST: $n bounds — literals counted as symbols ===\n');
   assert(oobAlias.length === 0,
     `Double-quoted aliases "and" and "or" are counted as symbols — $4 in A "and" B "or" C must not be flagged (got: ${oobAlias.map(d => d.message).join('; ')})`);
 
-  // rule: A B { $$ = $3; } → 2 symbols, $3 out of bounds → 1 Error
+  // rule: A B { $$ = $4; } → 3 symbols (A + B + action), $4 out of bounds → 1 Error
+  // (The action block counts as symbol #3; $4 exceeds the total of 3 symbols.)
   const bisonOob = [
     '%token A B',
     '%%',
     'start : rule ;',
-    'rule : A B { $$ = $3; }',
+    'rule : A B { $$ = $4; }',
     '%%',
   ].join('\n');
   const docOob = parseBisonDocument(bisonOob);
   const diagsOob = computeBisonDiagnostics(docOob, bisonOob);
-  const oobOob = diagsOob.filter(d => d.message.includes('$3') && d.message.includes('out of bounds'));
+  const oobOob = diagsOob.filter(d => d.message.includes('$4') && d.message.includes('out of bounds'));
   assert(oobOob.length >= 1,
-    `$3 in a 2-symbol rule A B must be flagged as out of bounds`);
+    `$4 in a 3-symbol rule A B {action} must be flagged as out of bounds`);
   assert(oobOob[0]?.severity === 1,
-    `$3 out-of-bounds diagnostic has Error severity`);
+    `$4 out-of-bounds diagnostic has Error severity`);
 }
 
 // ════════════════════════════════════════

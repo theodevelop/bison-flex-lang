@@ -2,6 +2,16 @@
 
 All notable changes to the **Bison/Flex Language Support** extension will be documented in this file.
 
+## [1.4.1] - 2026-03-31
+
+### Fixed
+
+- **Bison — mid-rule action `$N` out-of-bounds** (#21): Action blocks `{ }` embedded in the middle of a production are now counted as grammar symbols in Bison's `$N` numbering. Previously they were silently stripped, causing false-positive `bison/out-of-bounds` errors and missed real out-of-bounds accesses.
+- **Bison — `%token` numeric value and string alias** (#22): `%token NAME NUMBER "alias"` is now parsed in the correct order (numeric value before string alias). Previously, words inside the alias string were misidentified as token names, generating spurious `bison/undeclared-token` and `bison/unused-token` diagnostics.
+- **Flex — `<SC>{ }` block syntax** (#23): Rules grouped inside a `<SC1,SC2>{ ... }` block now correctly inherit their start conditions. Previously, the block header was misidentified as a rule pattern, suppressing all rules inside it and generating false `flex/unreachable-rule` and `flex/unused-sc` diagnostics.
+
+---
+
 ## [1.4.0] - 2026-03-30
 
 ### Added
