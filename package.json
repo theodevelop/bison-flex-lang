@@ -159,9 +159,31 @@
       {
         "command": "bisonFlex.noOp",
         "title": "Bison/Flex: No-Op (internal)"
+      },
+      {
+        "command": "bisonFlex.showInSource",
+        "title": "Bison/Flex: Show in Source",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "bisonFlex.showInGenerated",
+        "title": "Bison/Flex: Show in Generated File",
+        "icon": "$(go-to-file)"
       }
     ],
     "menus": {
+      "editor/context": [
+        {
+          "command": "bisonFlex.showInSource",
+          "when": "bisonFlexIsGeneratedFile",
+          "group": "navigation@100"
+        },
+        {
+          "command": "bisonFlex.showInGenerated",
+          "when": "editorLangId == bison || editorLangId == flex",
+          "group": "navigation@100"
+        }
+      ],
       "commandPalette": [
         {
           "command": "bisonFlex.compileBison",
@@ -206,6 +228,14 @@
         {
           "command": "bisonFlex.noOp",
           "when": "false"
+        },
+        {
+          "command": "bisonFlex.showInSource",
+          "when": "bisonFlexIsGeneratedFile"
+        },
+        {
+          "command": "bisonFlex.showInGenerated",
+          "when": "editorLangId == bison || editorLangId == flex"
         }
       ]
     },
@@ -265,6 +295,12 @@
           "default": [],
           "scope": "resource",
           "markdownDescription": "Diagnostic codes to silence entirely, regardless of version settings. Example: `[\"bison/shift-reduce\", \"flex/missing-yywrap\"]`.\n\nSee all available codes in the [Diagnostic Codes reference](https://github.com/theodevelop/bison-flex-lang/wiki/Diagnostic-Codes)."
+        },
+        "bisonFlex.buildDirectory": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "Path to the directory where Bison/Flex generated files are placed (e.g. `\"build\"` or `\"${workspaceFolder}/out\"`). Used by **Bison/Flex: Show in Generated File** to locate `.tab.c` / `lex.yy.c`. If empty, the extension tries CMake detection, Makefile detection, and the same directory as the source file."
         }
       }
     }
