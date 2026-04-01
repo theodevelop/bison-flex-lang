@@ -2,6 +2,17 @@
 
 All notable changes to the **Bison/Flex Language Support** extension will be documented in this file.
 
+## [1.5.0] - 2026-04-01
+
+### Added
+
+- **`#line`-based navigation** (#27): two new commands to jump between Bison/Flex grammar sources and their generated C files:
+  - **`Bison/Flex: Show in Source`** — from a generated `.tab.c` / `lex.yy.c` file, reads the nearest `#line N "file.y"` directive above the cursor and opens the grammar source at the correct line. Appears in the context menu only when a generated file is detected.
+  - **`Bison/Flex: Show in Generated File`** — from a `.y` / `.l` source, locates the generated file (using `bisonFlex.buildDirectory` setting, CMake detection, Makefile detection, same-directory fallback, then workspace-wide search) and navigates to the matching line. A QuickPick is shown when multiple candidates are found.
+  - New setting `bisonFlex.buildDirectory`: optional path to the build output directory, used by **Show in Generated File** to locate generated files when they are not in the same directory as the source.
+
+--
+
 ## [1.4.1] - 2026-03-31
 
 ### Fixed

@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as cp from 'child_process';
 import * as fs from 'fs';
+import { isGeneratedFile, showInSource, showInGenerated } from './lineDirectiveNavigation';
 import {
   ExtensionContext,
   workspace,
@@ -461,6 +462,29 @@ export function activate(context: ExtensionContext): void {
   context.subscriptions.push(
     commands.registerCommand('bisonFlex.noOp', () => { /* intentionally empty */ })
   );
+
+  // ── Commands: #line navigation ────────────────────────────────────────────
+  context.subscriptions.push(
+    commands.registerCommand('bisonFlex.showInSource', () => void showInSource())
+  );
+
+  context.subscriptions.push(
+    commands.registerCommand('bisonFlex.showInGenerated', () => void showInGenerated())
+  );
+
+  // Set context variable so the "Show in Source" menu entry only appears in generated files
+  function updateGeneratedFileContext(): void {
+    const editor = window.activeTextEditor;
+    if (!editor) {
+      void commands.executeCommand('setContext', 'bisonFlexIsGeneratedFile', false);
+      return;
+    }
+    const text = editor.document.getText();
+    void commands.executeCommand('setContext', 'bisonFlexIsGeneratedFile', isGeneratedFile(text));
+  }
+
+  context.subscriptions.push(window.onDidChangeActiveTextEditor(updateGeneratedFileContext));
+  updateGeneratedFileContext();
 
   // ── Command: Show References (triggered by "N references" Code Lenses) ────
   // Args: [uriString, { line, character }]
