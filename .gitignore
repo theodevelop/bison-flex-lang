@@ -4,3 +4,6 @@ client/out/
 server/out/
 *.vsix
 .env
+tests/_*
+docs/
+.vscode/
