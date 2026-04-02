@@ -377,6 +377,25 @@ console.log('\n=== TEST: Bug regressions ===');
   assert(unreachable.length === 0, '#23 no false flex/unreachable-rule for exclusive SC block');
 }
 
+// Issue #30 — quoted strings containing escaped quotes: "\'" and "\"" must NOT
+// produce flex/invalid-pattern. The "([^"]*)" replacement was stopping at the
+// first " inside the escaped sequence, corrupting the character class that follows.
+{
+  // Pattern: X"\'"[^'\n]*"\'"  (quoted single-quote literal on both sides)
+  const src1 = '%option noyywrap\n%%\nX"\\\'"\t[^\'\\n]*"\\\'"\t{}\n%%\n';
+  const doc1 = require('../server/src/parser/flexParser').parseFlexDocument(src1);
+  const diags1 = computeFlexDiagnostics(doc1, src1);
+  const inv1 = diags1.filter(d => d.code === 'flex/invalid-pattern');
+  assert(inv1.length === 0, '#30 pattern with escaped single-quote in quoted string must not produce flex/invalid-pattern');
+
+  // Pattern: X"\""[^"\n]*"\""  (quoted double-quote literal on both sides)
+  const src2 = '%option noyywrap\n%%\nX"\\""\t[^"\\n]*"\\""\t{}\n%%\n';
+  const doc2 = require('../server/src/parser/flexParser').parseFlexDocument(src2);
+  const diags2 = computeFlexDiagnostics(doc2, src2);
+  const inv2 = diags2.filter(d => d.code === 'flex/invalid-pattern');
+  assert(inv2.length === 0, '#30 pattern with escaped double-quote in quoted string must not produce flex/invalid-pattern');
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Results
 // ─────────────────────────────────────────────────────────────────────────────

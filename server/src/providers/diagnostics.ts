@@ -844,7 +844,7 @@ function validateFlexRegex(pat: string): string | null {
   // Convert Flex-specific syntax → approximate JS regex
   let p = pat
     .replace(/\{[a-zA-Z_][a-zA-Z0-9_]*\}/g, 'x')           // {abbr} → placeholder
-    .replace(/"([^"]*)"/g, (_, s) =>                          // "str" → escaped literal
+    .replace(/"((?:[^"\\]|\\.)*)"/g, (_, s) =>                 // "str" → escaped literal (handles \" inside)
       s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     .replace(/\[:(alpha|upper|lower):\]/g, 'a-zA-Z')         // POSIX classes (inside [...])
     .replace(/\[:digit:\]/g, '0-9')
