@@ -415,6 +415,97 @@ console.log('\n=== TEST: Bug regressions ===');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 6. Audit / proactive checks
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n=== TEST: Flex audit checks ===');
+
+// Bug A — rawPattern() was stopping at the space inside a Flex quoted string,
+// causing two rules like `"hello world"` and `"hello there"` to have the same
+// rawPattern = `"hello` and be flagged as duplicate (false flex/unreachable-rule).
+{
+  const src = '%option noyywrap\n%%\n"hello world"\t{}\n"hello there"\t{}\n%%\n';
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const diags = computeFlexDiagnostics(doc, src);
+  const dup = diags.filter(d => d.code === 'flex/unreachable-rule');
+  assert(dup.length === 0, 'audit-A: two distinct quoted-string patterns with spaces must not produce flex/unreachable-rule');
+}
+{
+  // Same pattern twice → should still be flagged
+  const src = '%option noyywrap\n%%\n"hello world"\t{}\n"hello world"\t{}\n%%\n';
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const diags = computeFlexDiagnostics(doc, src);
+  const dup = diags.filter(d => d.code === 'flex/unreachable-rule');
+  assert(dup.length === 1, 'audit-A: identical quoted-string patterns with spaces must still produce flex/unreachable-rule');
+}
+
+// Bug B — a standalone `{` on its own line (multi-line action) was pushed as a
+// rule with pattern `{`, causing false flex/unreachable-rule when multiple rules
+// use multi-line action syntax.
+{
+  const src = '%option noyywrap\n%%\nWORD1\t[a-z]+\n%%\n{WORD1}\n{\n  return 1;\n}\n%%\n';
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const diags = computeFlexDiagnostics(doc, src);
+  const unreach = diags.filter(d => d.code === 'flex/unreachable-rule');
+  assert(unreach.length === 0, 'audit-B: multi-line action `{` on own line must not produce flex/unreachable-rule');
+}
+{
+  // Multiple rules with multi-line actions: the spurious duplicate `{` rules
+  // would have caused false unreachable-rule diagnostics.
+  const src = '%option noyywrap\n%%\nA\t[a-z]+\nB\t[0-9]+\n%%\n{A}\n{\n  return 1;\n}\n{B}\n{\n  return 2;\n}\n%%\n';
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const diags = computeFlexDiagnostics(doc, src);
+  const unreach = diags.filter(d => d.code === 'flex/unreachable-rule');
+  assert(unreach.length === 0, 'audit-B: two rules with multi-line actions must not produce flex/unreachable-rule');
+}
+
+// Bug C — SC names are valid C identifiers and can be lowercase.
+// %x comment / <comment>rule {} were silently ignored before this fix.
+{
+  const src = '%option noyywrap\n%x comment\n%%\n[a-z]+\t{}\n<comment>[^\n]*\t{}\n%%\n';
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const diags = computeFlexDiagnostics(doc, src);
+  const undef = diags.filter(d => d.code === 'flex/undefined-sc');
+  assert(undef.length === 0, 'audit-C: lowercase SC name declared with %x must not produce flex/undefined-sc');
+  const unused = diags.filter(d => d.code === 'flex/unused-sc');
+  assert(unused.length === 0, 'audit-C: lowercase SC name used in rule must not produce flex/unused-sc');
+}
+{
+  // Declared but never used → should still warn
+  const src = '%option noyywrap\n%x comment\n%%\n[a-z]+\t{}\n%%\n';
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const diags = computeFlexDiagnostics(doc, src);
+  const unused = diags.filter(d => d.code === 'flex/unused-sc');
+  assert(unused.length === 1, 'audit-C: lowercase SC declared but unused must produce flex/unused-sc');
+}
+
+// Bug D — abbrRefs: single-tab separator between pattern and action was not
+// detected by the old \s{2,} heuristic, causing C-code {name} tokens inside the
+// action body to be falsely counted as abbreviation refs (false negative for
+// flex/unused-abbrev when the abbreviation is only "used" in action code).
+//
+// The triggering scenario: a C compound literal or array initializer like
+// `{ int arr[] = {N}; }` contains `{N}` which matches the {identifier} regex.
+// With \s{2,}, the single-tab separator was not recognised → actionStart=line.length
+// → {N} falsely counted as a pattern abbreviation ref → no flex/unused-abbrev.
+{
+  // N defined in definitions section, only referenced as {N} inside a C array
+  // initialiser in the action body (single-tab separator) → must still warn
+  const src = '%option noyywrap\nN\t[0-9]+\n%%\n[a-z]+\t{ int arr[] = {N}; }\n%%\n';
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const diags = computeFlexDiagnostics(doc, src);
+  const unused = diags.filter(d => d.code === 'flex/unused-abbrev');
+  assert(unused.length === 1, 'Bug-D: {name} only inside single-tab action body must produce flex/unused-abbrev');
+}
+{
+  // N used in pattern (before tab+action) → no unused-abbrev
+  const src = '%option noyywrap\nN\t[0-9]+\n%%\n{N}\t{ return 1; }\n%%\n';
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const diags = computeFlexDiagnostics(doc, src);
+  const unused = diags.filter(d => d.code === 'flex/unused-abbrev');
+  assert(unused.length === 0, 'Bug-D: abbreviation used in pattern before single-tab action must not produce flex/unused-abbrev');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Results
 // ─────────────────────────────────────────────────────────────────────────────
 console.log(`\n${'='.repeat(50)}`);
