@@ -13,6 +13,8 @@ All notable changes to the **Bison/Flex Language Support** extension will be doc
 - **Flex — lowercase start condition names** (audit-C): all start-condition regex patterns used `[A-Z_][A-Z0-9_]*` (uppercase only). SC names that are valid C identifiers but lowercase (e.g. `%x comment`) were silently ignored, skipping `flex/undefined-sc` and `flex/unused-sc` diagnostics for them entirely.
 - **Flex — single-tab action separator in abbreviation ref scan** (audit-D): the heuristic that separates the pattern from the action used `\s{2,}`, which did not match a single-tab separator. `{identifier}` tokens inside the C action body (e.g. compound literals) were falsely counted as abbreviation references, suppressing `flex/unused-abbrev`.
 - **Cleanup**: removed two dead entries in the catch-all pattern set that contained a literal newline character and could never match a rule line.
+- **Bison — lowercase/mixed-case tokens in precedence declarations** (audit-E): `%left`/`%right`/`%nonassoc` used an uppercase-only regex `[A-Z_][A-Z0-9_]*`, silently dropping tokens like `kPLUS` or `tTOKEN` from the precedence table. This caused false `bison/undeclared-token` warnings and incorrect shift/reduce heuristic results for such tokens.
+- **Bison — `$N` references after nested sub-blocks in inline actions** (audit-F): the `extractDollarRefs` scanner used `/\{([^}]*)\}/` which stops at the first `}`, missing `$N` references that appear after a nested `{ … }` block inside the same action (e.g. `{ if (cond) { log(); } $$ = $5; }`). Replaced with a brace-depth scanner; the same fix was applied to `extractSymbols`, `getFirstSymbol`, and `extractRuleReferences` for consistency.
 
 ---
 
