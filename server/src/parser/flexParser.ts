@@ -234,7 +234,7 @@ export function parseFlexDocument(text: string): FlexDocument {
       if (closeIdx >= 0) {
         // Collect any additional SC names before the >
         const before = trimmed.substring(0, closeIdx);
-        const moreConds = before.match(/[A-Z_][A-Z0-9_]*/g);
+        const moreConds = before.match(/[A-Za-z_][A-Za-z0-9_]*/g);
         if (moreConds) pendingScHeader += ',' + moreConds.join(',');
         const conds = pendingScHeader.replace(/^,+/, '').split(',').filter(s => s.length > 0);
         pendingScHeader = null;
@@ -246,7 +246,7 @@ export function parseFlexDocument(text: string): FlexDocument {
         }
       } else {
         // Still accumulating conditions from this line
-        const moreConds = trimmed.match(/[A-Z_][A-Z0-9_]*/g);
+        const moreConds = trimmed.match(/[A-Za-z_][A-Za-z0-9_]*/g);
         if (moreConds) pendingScHeader += ',' + moreConds.join(',');
       }
       continue;
@@ -267,10 +267,19 @@ export function parseFlexDocument(text: string): FlexDocument {
       continue;
     }
 
+    // ── Multi-line action opener: bare `{` on its own line ────────────────────
+    // In Flex, the action brace may appear on the line after the pattern.
+    // Treat a standalone `{` as the opening of a C action block, not a rule.
+    if (trimmed === '{') {
+      actionDepth = 1;
+      continue;
+    }
+
     // ── SC block opener: <SC1,SC2>{ ───────────────────────────────────────────
     // Single-line header: <SC1,SC2>{ or <SC1,SC2> {
+    // SC names may be upper or lower case (any valid C identifier).
     {
-      const scBlockMatch = trimmed.match(/^<([A-Z_][A-Z0-9_]*(?:,[A-Z_][A-Z0-9_]*)*)>\s*\{/);
+      const scBlockMatch = trimmed.match(/^<([A-Za-z_][A-Za-z0-9_]*(?:,[A-Za-z_][A-Za-z0-9_]*)*)>\s*\{/);
       if (scBlockMatch) {
         const conds = scBlockMatch[1].split(',');
         scBlockStack.push(conds);
@@ -284,7 +293,7 @@ export function parseFlexDocument(text: string): FlexDocument {
         continue;
       }
       // Multi-line header start: <SC1,   (no closing > on this line)
-      const scMultiStart = trimmed.match(/^<([A-Z_][A-Z0-9_]*(?:,[A-Z_][A-Z0-9_]*)*,\s*)$/);
+      const scMultiStart = trimmed.match(/^<([A-Za-z_][A-Za-z0-9_]*(?:,[A-Za-z_][A-Za-z0-9_]*)*,\s*)$/);
       if (scMultiStart) {
         pendingScHeader = scMultiStart[1].replace(/,\s*$/, '');
         continue;
@@ -293,7 +302,8 @@ export function parseFlexDocument(text: string): FlexDocument {
 
     // ── Extract start condition references: <SC_NAME> or <SC1,SC2> ────────────
     // Exclude <<EOF>> which is a special pattern, not a start condition
-    const scRefs = line.matchAll(/(?<!<)<([A-Z_][A-Z0-9_]*(?:,[A-Z_][A-Z0-9_]*)*)>(?!>)/g);
+    // SC names may be upper or lower case (any valid C identifier).
+    const scRefs = line.matchAll(/(?<!<)<([A-Za-z_][A-Za-z0-9_]*(?:,[A-Za-z_][A-Za-z0-9_]*)*)>(?!>)/g);
     for (const m of scRefs) {
       const conditions = m[1].split(',');
       for (const cond of conditions) {
@@ -311,8 +321,11 @@ export function parseFlexDocument(text: string): FlexDocument {
     const abbrRefs = line.matchAll(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g);
     for (const m of abbrRefs) {
       const name = m[1];
-      // Only count as abbreviation ref if it appears before any action block on this line
-      const actionStart = line.indexOf('{', (line.match(/\s{2,}\{/) || { index: line.length }).index || line.length);
+      // Only count as abbreviation ref if it appears before any action block on this line.
+      // If there is no action { on this line (multi-line action), treat actionStart as line.length
+      // so all {name} refs on this line are counted.
+      const actionMatch = line.match(/\s+\{/);
+      const actionStart = actionMatch !== null ? line.indexOf('{', actionMatch.index!) : line.length;
       if (m.index !== undefined && m.index < actionStart) {
         const col = m.index;
         const range = Range.create(i, col, i, col + m[0].length);
@@ -327,7 +340,7 @@ export function parseFlexDocument(text: string): FlexDocument {
     // Start conditions: explicit <SC> prefix on this line PLUS any inherited from <SC>{ block
     const inherited = scBlockStack.length > 0 ? scBlockStack[scBlockStack.length - 1] : [];
     const startConditions: string[] = [...inherited];
-    const scMatch = trimmed.match(/^<([A-Z_][A-Z0-9_]*(?:,[A-Z_][A-Z0-9_]*)*)>/);
+    const scMatch = trimmed.match(/^<([A-Za-z_][A-Za-z0-9_]*(?:,[A-Za-z_][A-Za-z0-9_]*)*)>/);
     if (scMatch) {
       for (const c of scMatch[1].split(',')) {
         if (!startConditions.includes(c)) startConditions.push(c);
@@ -375,7 +388,7 @@ function parseOptions(text: string, lineNum: number, fullLine: string, doc: Flex
 }
 
 function parseStartConditions(text: string, exclusive: boolean, lineNum: number, fullLine: string, doc: FlexDocument): void {
-  const names = text.match(/[A-Z_][A-Z0-9_]*/g);
+  const names = text.match(/[A-Za-z_][A-Za-z0-9_]*/g);
   if (!names) return;
   for (const name of names) {
     const col = fullLine.indexOf(name);

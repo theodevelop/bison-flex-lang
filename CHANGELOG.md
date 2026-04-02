@@ -2,6 +2,22 @@
 
 All notable changes to the **Bison/Flex Language Support** extension will be documented in this file.
 
+## [1.5.1] - 2026-04-02
+
+### Fixed
+
+- **Flex — escaped quotes in quoted string patterns** (#30): patterns like `X"\'"` and `Y"\""` no longer trigger false `flex/invalid-pattern` errors. The validator now correctly handles `\"` and `\'` escape sequences inside Flex quoted strings.
+- **Flex — abbreviation refs on rule lines with no inline action** (#31): `{ABBR}` used after a `^` BOL anchor or on a rule line whose action block appears on the following line was not recorded as an abbreviation reference, causing false `flex/unused-abbrev` warnings.
+- **Flex — quoted strings with spaces in `rawPattern`** (audit-A): patterns like `"hello world"` were truncated at the space inside the quoted literal, causing false `flex/unreachable-rule` duplicates for distinct patterns sharing a common word prefix. `rawPattern()` now tracks quoted-string depth.
+- **Flex — standalone `{` as multi-line action opener** (audit-B): a `{` appearing alone on the line after a rule pattern (valid Flex multi-line action syntax) was pushed as a spurious rule entry with pattern `{`, producing false `flex/unreachable-rule` diagnostics for every subsequent multi-line-action rule.
+- **Flex — lowercase start condition names** (audit-C): all start-condition regex patterns used `[A-Z_][A-Z0-9_]*` (uppercase only). SC names that are valid C identifiers but lowercase (e.g. `%x comment`) were silently ignored, skipping `flex/undefined-sc` and `flex/unused-sc` diagnostics for them entirely.
+- **Flex — single-tab action separator in abbreviation ref scan** (audit-D): the heuristic that separates the pattern from the action used `\s{2,}`, which did not match a single-tab separator. `{identifier}` tokens inside the C action body (e.g. compound literals) were falsely counted as abbreviation references, suppressing `flex/unused-abbrev`.
+- **Cleanup**: removed two dead entries in the catch-all pattern set that contained a literal newline character and could never match a rule line.
+- **Bison — lowercase/mixed-case tokens in precedence declarations** (audit-E): `%left`/`%right`/`%nonassoc` used an uppercase-only regex `[A-Z_][A-Z0-9_]*`, silently dropping tokens like `kPLUS` or `tTOKEN` from the precedence table. This caused false `bison/undeclared-token` warnings and incorrect shift/reduce heuristic results for such tokens.
+- **Bison — `$N` references after nested sub-blocks in inline actions** (audit-F): the `extractDollarRefs` scanner used `/\{([^}]*)\}/` which stops at the first `}`, missing `$N` references that appear after a nested `{ … }` block inside the same action (e.g. `{ if (cond) { log(); } $$ = $5; }`). Replaced with a brace-depth scanner; the same fix was applied to `extractSymbols`, `getFirstSymbol`, and `extractRuleReferences` for consistency.
+
+---
+
 ## [1.5.0] - 2026-04-01
 
 ### Added
@@ -11,7 +27,7 @@ All notable changes to the **Bison/Flex Language Support** extension will be doc
   - **`Bison/Flex: Show in Generated File`** — from a `.y` / `.l` source, locates the generated file (using `bisonFlex.buildDirectory` setting, CMake detection, Makefile detection, same-directory fallback, then workspace-wide search) and navigates to the matching line. A QuickPick is shown when multiple candidates are found.
   - New setting `bisonFlex.buildDirectory`: optional path to the build output directory, used by **Show in Generated File** to locate generated files when they are not in the same directory as the source.
 
---
+---
 
 ## [1.4.1] - 2026-03-31
 

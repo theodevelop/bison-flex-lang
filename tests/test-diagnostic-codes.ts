@@ -364,6 +364,24 @@ console.log('\n=== TEST: Bug regressions ===');
   assert(oob5.length === 1, '#21 $6 IS out-of-bounds (5 symbols: A B {action} D {action2})');
 }
 
+// Issue #31 — false flex/unused-abbrev when abbreviation is used after ^ (BOL anchor)
+// or in a pattern where the action is on the next line (no action { on the rule line).
+{
+  const src = '%option noyywrap\n%%\nAREA_A\t"#AREA_A"\n%%\n<*>^{AREA_A}[ ]* {\n  /* ok */\n}\n%%\n';
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const diags = computeFlexDiagnostics(doc, src);
+  const unused = diags.filter(d => d.code === 'flex/unused-abbrev');
+  assert(unused.length === 0, '#31 abbreviation used after ^ BOL anchor must not produce flex/unused-abbrev');
+}
+{
+  // Multi-line action: action { on next line — abbrev ref on rule line must still be recorded
+  const src2 = '%option noyywrap\n%%\nWORD\t[a-z]+\n%%\n{WORD}\n{\n  /* ok */\n}\n%%\n';
+  const doc2 = require('../server/src/parser/flexParser').parseFlexDocument(src2);
+  const diags2 = computeFlexDiagnostics(doc2, src2);
+  const unused2 = diags2.filter(d => d.code === 'flex/unused-abbrev');
+  assert(unused2.length === 0, '#31 abbreviation used on rule line with multi-line action must not produce flex/unused-abbrev');
+}
+
 // Issue #23 — rules inside a <SC>{ ... } block inherit the start condition.
 // A catch-all `.` in INITIAL should NOT shadow rules in an exclusive SC block.
 {
@@ -375,6 +393,163 @@ console.log('\n=== TEST: Bug regressions ===');
   const diags23 = computeFlexDiagnostics(doc, src);
   const unreachable = diags23.filter(d => d.code === 'flex/unreachable-rule');
   assert(unreachable.length === 0, '#23 no false flex/unreachable-rule for exclusive SC block');
+}
+
+// Issue #30 — quoted strings containing escaped quotes: "\'" and "\"" must NOT
+// produce flex/invalid-pattern. The "([^"]*)" replacement was stopping at the
+// first " inside the escaped sequence, corrupting the character class that follows.
+{
+  // Pattern: X"\'"[^'\n]*"\'"  (quoted single-quote literal on both sides)
+  const src1 = '%option noyywrap\n%%\nX"\\\'"\t[^\'\\n]*"\\\'"\t{}\n%%\n';
+  const doc1 = require('../server/src/parser/flexParser').parseFlexDocument(src1);
+  const diags1 = computeFlexDiagnostics(doc1, src1);
+  const inv1 = diags1.filter(d => d.code === 'flex/invalid-pattern');
+  assert(inv1.length === 0, '#30 pattern with escaped single-quote in quoted string must not produce flex/invalid-pattern');
+
+  // Pattern: X"\""[^"\n]*"\""  (quoted double-quote literal on both sides)
+  const src2 = '%option noyywrap\n%%\nX"\\""\t[^"\\n]*"\\""\t{}\n%%\n';
+  const doc2 = require('../server/src/parser/flexParser').parseFlexDocument(src2);
+  const diags2 = computeFlexDiagnostics(doc2, src2);
+  const inv2 = diags2.filter(d => d.code === 'flex/invalid-pattern');
+  assert(inv2.length === 0, '#30 pattern with escaped double-quote in quoted string must not produce flex/invalid-pattern');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. Audit / proactive checks
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n=== TEST: Flex audit checks ===');
+
+// Bug A — rawPattern() was stopping at the space inside a Flex quoted string,
+// causing two rules like `"hello world"` and `"hello there"` to have the same
+// rawPattern = `"hello` and be flagged as duplicate (false flex/unreachable-rule).
+{
+  const src = '%option noyywrap\n%%\n"hello world"\t{}\n"hello there"\t{}\n%%\n';
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const diags = computeFlexDiagnostics(doc, src);
+  const dup = diags.filter(d => d.code === 'flex/unreachable-rule');
+  assert(dup.length === 0, 'audit-A: two distinct quoted-string patterns with spaces must not produce flex/unreachable-rule');
+}
+{
+  // Same pattern twice → should still be flagged
+  const src = '%option noyywrap\n%%\n"hello world"\t{}\n"hello world"\t{}\n%%\n';
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const diags = computeFlexDiagnostics(doc, src);
+  const dup = diags.filter(d => d.code === 'flex/unreachable-rule');
+  assert(dup.length === 1, 'audit-A: identical quoted-string patterns with spaces must still produce flex/unreachable-rule');
+}
+
+// Bug B — a standalone `{` on its own line (multi-line action) was pushed as a
+// rule with pattern `{`, causing false flex/unreachable-rule when multiple rules
+// use multi-line action syntax.
+{
+  const src = '%option noyywrap\n%%\nWORD1\t[a-z]+\n%%\n{WORD1}\n{\n  return 1;\n}\n%%\n';
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const diags = computeFlexDiagnostics(doc, src);
+  const unreach = diags.filter(d => d.code === 'flex/unreachable-rule');
+  assert(unreach.length === 0, 'audit-B: multi-line action `{` on own line must not produce flex/unreachable-rule');
+}
+{
+  // Multiple rules with multi-line actions: the spurious duplicate `{` rules
+  // would have caused false unreachable-rule diagnostics.
+  const src = '%option noyywrap\n%%\nA\t[a-z]+\nB\t[0-9]+\n%%\n{A}\n{\n  return 1;\n}\n{B}\n{\n  return 2;\n}\n%%\n';
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const diags = computeFlexDiagnostics(doc, src);
+  const unreach = diags.filter(d => d.code === 'flex/unreachable-rule');
+  assert(unreach.length === 0, 'audit-B: two rules with multi-line actions must not produce flex/unreachable-rule');
+}
+
+// Bug C — SC names are valid C identifiers and can be lowercase.
+// %x comment / <comment>rule {} were silently ignored before this fix.
+{
+  const src = '%option noyywrap\n%x comment\n%%\n[a-z]+\t{}\n<comment>[^\n]*\t{}\n%%\n';
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const diags = computeFlexDiagnostics(doc, src);
+  const undef = diags.filter(d => d.code === 'flex/undefined-sc');
+  assert(undef.length === 0, 'audit-C: lowercase SC name declared with %x must not produce flex/undefined-sc');
+  const unused = diags.filter(d => d.code === 'flex/unused-sc');
+  assert(unused.length === 0, 'audit-C: lowercase SC name used in rule must not produce flex/unused-sc');
+}
+{
+  // Declared but never used → should still warn
+  const src = '%option noyywrap\n%x comment\n%%\n[a-z]+\t{}\n%%\n';
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const diags = computeFlexDiagnostics(doc, src);
+  const unused = diags.filter(d => d.code === 'flex/unused-sc');
+  assert(unused.length === 1, 'audit-C: lowercase SC declared but unused must produce flex/unused-sc');
+}
+
+// Bug D — abbrRefs: single-tab separator between pattern and action was not
+// detected by the old \s{2,} heuristic, causing C-code {name} tokens inside the
+// action body to be falsely counted as abbreviation refs (false negative for
+// flex/unused-abbrev when the abbreviation is only "used" in action code).
+//
+// The triggering scenario: a C compound literal or array initializer like
+// `{ int arr[] = {N}; }` contains `{N}` which matches the {identifier} regex.
+// With \s{2,}, the single-tab separator was not recognised → actionStart=line.length
+// → {N} falsely counted as a pattern abbreviation ref → no flex/unused-abbrev.
+{
+  // N defined in definitions section, only referenced as {N} inside a C array
+  // initialiser in the action body (single-tab separator) → must still warn
+  const src = '%option noyywrap\nN\t[0-9]+\n%%\n[a-z]+\t{ int arr[] = {N}; }\n%%\n';
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const diags = computeFlexDiagnostics(doc, src);
+  const unused = diags.filter(d => d.code === 'flex/unused-abbrev');
+  assert(unused.length === 1, 'Bug-D: {name} only inside single-tab action body must produce flex/unused-abbrev');
+}
+{
+  // N used in pattern (before tab+action) → no unused-abbrev
+  const src = '%option noyywrap\nN\t[0-9]+\n%%\n{N}\t{ return 1; }\n%%\n';
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const diags = computeFlexDiagnostics(doc, src);
+  const unused = diags.filter(d => d.code === 'flex/unused-abbrev');
+  assert(unused.length === 0, 'Bug-D: abbreviation used in pattern before single-tab action must not produce flex/unused-abbrev');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bison audit checks
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n=== TEST: Bison audit checks ===');
+
+{
+  // audit-E: lowercase/mixed-case tokens in %left/%right/%nonassoc must be recorded
+  // in doc.precedence so they don't produce false bison/undeclared-token diagnostics.
+  const src = [
+    '%token kPLUS kMINUS kNUM',
+    '%left kPLUS kMINUS',
+    '%%',
+    'start : expr ;',
+    'expr : expr kPLUS expr { $$ = $1 + $3; }',
+    '     | expr kMINUS expr { $$ = $1 - $3; }',
+    '     | kNUM',
+    '     ;',
+    '%%',
+  ].join('\n');
+  const doc = parseBisonDocument(src);
+  assert(
+    doc.precedence.length === 1 && doc.precedence[0].symbols.includes('kPLUS') && doc.precedence[0].symbols.includes('kMINUS'),
+    'audit-E: lowercase tokens kPLUS/kMINUS recorded in doc.precedence',
+  );
+  const diags = computeBisonDiagnostics(doc, src);
+  const undeclared = diags.filter(d => d.code === 'bison/undeclared-token');
+  assert(undeclared.length === 0, 'audit-E: no false bison/undeclared-token for lowercase precedence tokens (got ' + undeclared.length + ')');
+}
+
+{
+  // audit-F: $N after a nested sub-block inside an action must be detected.
+  // Pattern: A { if (cond) { skip(); } $5; }  — 1 symbol, $5 is out-of-bounds.
+  // Old /\{[^}]*\}/ missed $5 because it appears after the inner `}`.
+  const src = [
+    '%token A',
+    '%%',
+    'start : stmt ;',
+    'stmt : A { if (1) { int x = 0; } $$ = $5; }',
+    '     ;',
+    '%%',
+  ].join('\n');
+  const doc = parseBisonDocument(src);
+  const diags = computeBisonDiagnostics(doc, src);
+  const oob = diags.filter(d => d.code === 'bison/out-of-bounds' && d.message.includes('$5'));
+  assert(oob.length >= 1, 'audit-F: $5 after nested sub-block in action is detected as out-of-bounds');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

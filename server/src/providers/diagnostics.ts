@@ -637,31 +637,35 @@ export function computeFlexDiagnostics(doc: FlexDocument, text: string, settings
    * the first whitespace after the regex.
    */
   const rawPattern = (pattern: string): string => {
-    // Remove optional <SC> or <SC1,SC2> prefix
-    let p = pattern.replace(/^<[A-Z_*][A-Z0-9_,*]*>\s*/, '').trimStart();
-    // Extract the pattern token, tracking [] bracket depth so spaces inside
-    // character classes (e.g. "[ \t\n]") are included, not treated as delimiters.
+    // Remove optional <SC> or <SC1,SC2> prefix (SC names may be upper or lower case; * is the wildcard)
+    let p = pattern.replace(/^<[A-Za-z_*][A-Za-z0-9_,*]*>\s*/, '').trimStart();
+    // Extract the pattern token, tracking [] bracket depth and "..." quoted strings
+    // so spaces inside character classes (e.g. "[ \t\n]") or quoted literals
+    // (e.g. "hello world") are included, not treated as delimiters.
     // Backslash-escape handling: \X consumes both chars as a unit.
     let result = '';
     let depth = 0;
+    let inQuote = false;
     for (let i = 0; i < p.length; i++) {
       const ch = p[i];
       if (ch === '\\') {
-        // Escaped char: consume both as-is (e.g. "\[" or "\\")
+        // Escaped char: consume both as-is (e.g. "\[" or "\\" or "\"")
         result += ch + (p[i + 1] ?? '');
         i++;
         continue;
       }
-      if (ch === '[') { depth++; result += ch; continue; }
-      if (ch === ']' && depth > 0) { depth--; result += ch; continue; }
-      if ((ch === ' ' || ch === '\t') && depth === 0) break;
+      if (ch === '"' && !inQuote && depth === 0) { inQuote = true;  result += ch; continue; }
+      if (ch === '"' && inQuote)                  { inQuote = false; result += ch; continue; }
+      if (ch === '[' && !inQuote) { depth++; result += ch; continue; }
+      if (ch === ']' && depth > 0 && !inQuote) { depth--; result += ch; continue; }
+      if ((ch === ' ' || ch === '\t') && depth === 0 && !inQuote) break;
       result += ch;
     }
     return result || p;
   };
 
   // Catch-all patterns that would shadow everything after them
-  const CATCHALL_PATTERNS = new Set(['.', '.*', '.+', '.|\\n', '(.|\n)*', '(.|\n)+', '(.|\\n)*', '(.|\\n)+']);
+  const CATCHALL_PATTERNS = new Set(['.', '.*', '.+', '.|\\n', '(.|\\n)*', '(.|\\n)+']);
 
   // Track: first seen pattern per context (for duplicate detection)
   const seenPatterns = new Map<string, number>(); // "context|pattern" -> line number of first occurrence
@@ -844,7 +848,7 @@ function validateFlexRegex(pat: string): string | null {
   // Convert Flex-specific syntax → approximate JS regex
   let p = pat
     .replace(/\{[a-zA-Z_][a-zA-Z0-9_]*\}/g, 'x')           // {abbr} → placeholder
-    .replace(/"([^"]*)"/g, (_, s) =>                          // "str" → escaped literal
+    .replace(/"((?:[^"\\]|\\.)*)"/g, (_, s) =>                 // "str" → escaped literal (handles \" inside)
       s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     .replace(/\[:(alpha|upper|lower):\]/g, 'a-zA-Z')         // POSIX classes (inside [...])
     .replace(/\[:digit:\]/g, '0-9')

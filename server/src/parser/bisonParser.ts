@@ -166,7 +166,7 @@ export function parseBisonDocument(text: string): BisonDocument {
     const precMatch = trimmed.match(/^%(left|right|nonassoc|precedence)\s+(.*)/);
     if (precMatch) {
       const kind = precMatch[1] as PrecedenceDeclaration['kind'];
-      const rawSymbols = precMatch[2].match(/[A-Z_][A-Z0-9_]*|"[^"]*"/g) || [];
+      const rawSymbols = precMatch[2].match(/[A-Za-z_][A-Za-z0-9_]*|"[^"]*"/g) || [];
       const symbols: string[] = [];
       const symbolRanges: Range[] = [];
       for (const raw of rawSymbols) {
@@ -390,6 +390,33 @@ function replaceStringLiterals(text: string): string {
 }
 
 /**
+ * Remove all brace-balanced { ... } blocks from `text`, replacing each with `replacement`.
+ * Handles arbitrarily nested braces, unlike /\{[^}]*\}/ which stops at the first `}`.
+ * Unmatched `{` without a closing `}` (e.g. a multi-line action opener on its own line)
+ * are left out of the result — the Phase 3 brace tracker handles them separately.
+ */
+function removeBalancedBraces(text: string, replacement: string = ' '): string {
+  let result = '';
+  let depth = 0;
+  let pendingOpen = false;  // true while inside a block that hasn't been closed yet
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '{') {
+      if (depth === 0) pendingOpen = true;
+      depth++;
+    } else if (text[i] === '}') {
+      depth = Math.max(0, depth - 1);
+      if (depth === 0 && pendingOpen) {
+        result += replacement;  // only emit placeholder when the block is fully closed
+        pendingOpen = false;
+      }
+    } else if (depth === 0) {
+      result += text[i];
+    }
+  }
+  return result;
+}
+
+/**
  * Extract all grammar symbols (identifiers) from a production RHS in order.
  *
  * String literals ("+" , "{", "function", …) ARE counted as symbols because
@@ -399,8 +426,7 @@ function replaceStringLiterals(text: string): string {
  * `"("` apart from `"{"` (both have different placeholders).
  */
 function extractSymbols(text: string): string[] {
-  const cleaned = replaceStringLiterals(text)
-    .replace(/\{[^}]*\}/g, ' __midaction__ ')     // inline actions count as a symbol ($N position)
+  const cleaned = removeBalancedBraces(replaceStringLiterals(text), ' __midaction__ ')  // inline actions count as a symbol ($N position)
     .replace(/%prec\s+\S+/g, ' ')                 // remove %prec TOKEN
     .replace(/%empty/g, ' ')                      // remove %empty
     .replace(/\/\/.*$/g, ' ')                     // remove line comments
@@ -423,8 +449,7 @@ function extractSymbols(text: string): string[] {
  * `__s` (not all-caps) and is therefore not confused with a real terminal.
  */
 function getFirstSymbol(text: string): string | undefined {
-  const cleaned = replaceStringLiterals(text)
-    .replace(/\{[^}]*\}/g, ' ')                   // remove inline actions
+  const cleaned = removeBalancedBraces(replaceStringLiterals(text))   // remove inline actions
     .replace(/%prec\s+\S+/g, ' ')                 // remove %prec TOKEN
     .replace(/%empty/g, ' ')                      // remove %empty
     .replace(/\/\/.*$/g, ' ')                     // remove line comments
@@ -518,15 +543,27 @@ function parseTokenNames(text: string, type: string | undefined, lineNum: number
 
 /**
  * Scan the inline action block(s) on a single line for $n references.
- * Only handles single-line { ... } blocks; multi-line actions are not detected here.
+ * Uses a brace-depth scanner so that $n references appearing after a nested
+ * sub-block (e.g. `{ if (x) { foo(); } $$ = $1; }`) are not missed.
+ * Only handles single-line { ... } blocks; multi-line actions are tracked by
+ * the caller (Phase 3 loop in parseBisonDocument).
  * $$ and $<type>n are deliberately skipped.
  */
 function extractDollarRefs(text: string, lineNum: number, fullLine: string): DollarRef[] {
   const refs: DollarRef[] = [];
-  const actionRegex = /\{([^}]*)\}/g;
-  let actionMatch: RegExpExecArray | null;
-  while ((actionMatch = actionRegex.exec(text)) !== null) {
-    const actionContent = actionMatch[1];
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] !== '{') { i++; continue; }
+    // Found the opening brace of an action block — scan to the matching '}'
+    let depth = 1;
+    let j = i + 1;
+    while (j < text.length && depth > 0) {
+      if (text[j] === '{') depth++;
+      else if (text[j] === '}') depth--;
+      j++;
+    }
+    // text[i+1 .. j-2] is the full content of this balanced action block
+    const actionContent = text.substring(i + 1, j - 1);
     const dollarRegex = /\$(\d+)/g;
     let m: RegExpExecArray | null;
     while ((m = dollarRegex.exec(actionContent)) !== null) {
@@ -540,6 +577,7 @@ function extractDollarRefs(text: string, lineNum: number, fullLine: string): Dol
         range: Range.create(lineNum, col >= 0 ? col : 0, lineNum, (col >= 0 ? col : 0) + fullMatch.length),
       });
     }
+    i = j; // advance past the entire balanced block
   }
   return refs;
 }
@@ -579,9 +617,7 @@ function extractRuleReferences(text: string, lineNum: number, fullLine: string, 
 
   // Find identifiers in rule bodies (potential token/nonterminal references)
   // Skip: strings, actions (braces), %prec keyword (but keep its token), %empty, comments
-  const cleaned = text
-    .replace(/"(?:[^"\\]|\\.)*"/g, '')     // remove strings
-    .replace(/\{[^}]*\}/g, '')             // remove inline actions
+  const cleaned = removeBalancedBraces(text.replace(/"(?:[^"\\]|\\.)*"/g, ''))  // remove strings, then inline actions
     .replace(/%prec/g, '')                 // remove %prec keyword (keep the token name)
     .replace(/%empty/g, '')                // remove %empty
     .replace(/\/\/.*$/g, '');              // remove line comments
