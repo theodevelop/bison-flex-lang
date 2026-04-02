@@ -311,8 +311,11 @@ export function parseFlexDocument(text: string): FlexDocument {
     const abbrRefs = line.matchAll(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g);
     for (const m of abbrRefs) {
       const name = m[1];
-      // Only count as abbreviation ref if it appears before any action block on this line
-      const actionStart = line.indexOf('{', (line.match(/\s{2,}\{/) || { index: line.length }).index || line.length);
+      // Only count as abbreviation ref if it appears before any action block on this line.
+      // If there is no action { on this line (multi-line action), treat actionStart as line.length
+      // so all {name} refs on this line are counted.
+      const actionMatch = line.match(/\s{2,}\{/);
+      const actionStart = actionMatch !== null ? line.indexOf('{', actionMatch.index!) : line.length;
       if (m.index !== undefined && m.index < actionStart) {
         const col = m.index;
         const range = Range.create(i, col, i, col + m[0].length);

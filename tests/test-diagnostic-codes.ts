@@ -364,6 +364,24 @@ console.log('\n=== TEST: Bug regressions ===');
   assert(oob5.length === 1, '#21 $6 IS out-of-bounds (5 symbols: A B {action} D {action2})');
 }
 
+// Issue #31 — false flex/unused-abbrev when abbreviation is used after ^ (BOL anchor)
+// or in a pattern where the action is on the next line (no action { on the rule line).
+{
+  const src = '%option noyywrap\n%%\nAREA_A\t"#AREA_A"\n%%\n<*>^{AREA_A}[ ]* {\n  /* ok */\n}\n%%\n';
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const diags = computeFlexDiagnostics(doc, src);
+  const unused = diags.filter(d => d.code === 'flex/unused-abbrev');
+  assert(unused.length === 0, '#31 abbreviation used after ^ BOL anchor must not produce flex/unused-abbrev');
+}
+{
+  // Multi-line action: action { on next line — abbrev ref on rule line must still be recorded
+  const src2 = '%option noyywrap\n%%\nWORD\t[a-z]+\n%%\n{WORD}\n{\n  /* ok */\n}\n%%\n';
+  const doc2 = require('../server/src/parser/flexParser').parseFlexDocument(src2);
+  const diags2 = computeFlexDiagnostics(doc2, src2);
+  const unused2 = diags2.filter(d => d.code === 'flex/unused-abbrev');
+  assert(unused2.length === 0, '#31 abbreviation used on rule line with multi-line action must not produce flex/unused-abbrev');
+}
+
 // Issue #23 — rules inside a <SC>{ ... } block inherit the start condition.
 // A catch-all `.` in INITIAL should NOT shadow rules in an exclusive SC block.
 {
