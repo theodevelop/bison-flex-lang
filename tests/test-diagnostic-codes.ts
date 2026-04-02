@@ -506,6 +506,53 @@ console.log('\n=== TEST: Flex audit checks ===');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Bison audit checks
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n=== TEST: Bison audit checks ===');
+
+{
+  // audit-E: lowercase/mixed-case tokens in %left/%right/%nonassoc must be recorded
+  // in doc.precedence so they don't produce false bison/undeclared-token diagnostics.
+  const src = [
+    '%token kPLUS kMINUS kNUM',
+    '%left kPLUS kMINUS',
+    '%%',
+    'start : expr ;',
+    'expr : expr kPLUS expr { $$ = $1 + $3; }',
+    '     | expr kMINUS expr { $$ = $1 - $3; }',
+    '     | kNUM',
+    '     ;',
+    '%%',
+  ].join('\n');
+  const doc = parseBisonDocument(src);
+  assert(
+    doc.precedence.length === 1 && doc.precedence[0].symbols.includes('kPLUS') && doc.precedence[0].symbols.includes('kMINUS'),
+    'audit-E: lowercase tokens kPLUS/kMINUS recorded in doc.precedence',
+  );
+  const diags = computeBisonDiagnostics(doc, src);
+  const undeclared = diags.filter(d => d.code === 'bison/undeclared-token');
+  assert(undeclared.length === 0, 'audit-E: no false bison/undeclared-token for lowercase precedence tokens (got ' + undeclared.length + ')');
+}
+
+{
+  // audit-F: $N after a nested sub-block inside an action must be detected.
+  // Pattern: A { if (cond) { skip(); } $5; }  — 1 symbol, $5 is out-of-bounds.
+  // Old /\{[^}]*\}/ missed $5 because it appears after the inner `}`.
+  const src = [
+    '%token A',
+    '%%',
+    'start : stmt ;',
+    'stmt : A { if (1) { int x = 0; } $$ = $5; }',
+    '     ;',
+    '%%',
+  ].join('\n');
+  const doc = parseBisonDocument(src);
+  const diags = computeBisonDiagnostics(doc, src);
+  const oob = diags.filter(d => d.code === 'bison/out-of-bounds' && d.message.includes('$5'));
+  assert(oob.length >= 1, 'audit-F: $5 after nested sub-block in action is detected as out-of-bounds');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Results
 // ─────────────────────────────────────────────────────────────────────────────
 console.log(`\n${'='.repeat(50)}`);
