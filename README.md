@@ -39,6 +39,44 @@ Real-time error detection as you type:
 | Shift/reduce conflict heuristic | |
 | Unknown/invalid directive | |
 
+Every diagnostic carries a **source** field (`bison` / `flex`), a **code slug** (e.g. `bison/unused-token`), and where available a **link** to the GNU documentation — rendered as a clickable `[bison/unused-token]` link in the Problems panel. Unused symbols are rendered greyed-out via `DiagnosticTag.Unnecessary`.
+
+### Fix-it Hints (Quick Fixes)
+
+22 code actions available via the lightbulb (`Ctrl+.`) or directly from the Problems panel:
+
+**Bison** (11 fixes):
+- Insert missing `%%` separator
+- Declare undeclared `%token`
+- Insert `%empty` for empty production
+- Remove unused token declaration
+- Remove unknown directive
+- Add rule stub for missing non-terminal
+- Add `%type <todo>` declaration
+- Remove invalid `%start` / Add `%start` directive
+- Close unclosed `%{` block
+- Migrate Yacc legacy directives (`%error-verbose` → `%define parse.error verbose`, `%name-prefix`, `%pure-parser`, `%binary`)
+
+**Flex** (11 fixes):
+- Insert missing `%%` separator
+- Define abbreviation stub
+- Remove unused abbreviation
+- Remove unused start condition
+- Remove unknown directive
+- Declare `%x SC_NAME` for undefined start condition
+- Remove unused `%option`
+- Remove duplicate `<<EOF>>` rule
+- Add `%option noyywrap`
+- Close unclosed `%{` block
+- Remove inaccessible rule
+
+### Source ↔ Generated File Navigation
+
+Jump between Bison/Flex grammar sources and their generated C files using `#line` directives:
+
+- **Bison/Flex: Show in Source** — from a generated `.tab.c` / `lex.yy.c` file, reads the nearest `#line N "file.y"` directive above the cursor and opens the grammar source at the correct line. Appears in the context menu only when a generated file is detected.
+- **Bison/Flex: Show in Generated File** — from a `.y` / `.l` source, locates the generated file and navigates to the matching line. Searches `bisonFlex.buildDirectory`, then CMake/Makefile detection, then the same directory, then a workspace-wide scan. A QuickPick is shown when multiple candidates are found.
+
 ### Autocompletion
 
 Context-aware suggestions triggered as you type:
@@ -185,6 +223,10 @@ Then press `F5` in VS Code to launch the Extension Development Host.
 | `bisonFlex.showInlayHints` | `boolean` | `true` | Show inline type hints for `$$`/`$1`/`@$` semantic values |
 | `bisonFlex.enableCodeLens` | `boolean` | `true` | Show reference counts and entry-point badges above rules |
 | `bisonFlex.enableCmakeDiagnostics` | `boolean` | `true` | Warn when a `.y`/`.l` file is not referenced in `CMakeLists.txt` |
+| `bisonFlex.minVersionBison` | `string` | `""` | Suppress checks that require a newer Bison version (e.g. `"3.0"`). Fires `bison/feature-requires-version` when a `%define` feature exceeds this version. |
+| `bisonFlex.minVersionFlex` | `string` | `""` | Same as above for Flex. |
+| `bisonFlex.disabledChecks` | `array` | `[]` | Diagnostic code slugs to suppress entirely (e.g. `["bison/shift-reduce", "flex/missing-yywrap"]`). |
+| `bisonFlex.buildDirectory` | `string` | `""` | Path to the build output directory. Used by **Show in Generated File** to locate `.tab.c` / `lex.yy.c` when they are not next to the source. |
 
 ---
 
