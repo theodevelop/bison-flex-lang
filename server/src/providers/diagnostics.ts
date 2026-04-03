@@ -879,11 +879,14 @@ function getLiteralKeyword(pat: string): string | null {
  * i.e., could match arbitrary letter sequences including keywords.
  */
 function isWordPattern(pat: string): boolean {
-  // Character class starting with a letter or underscore range: [a-z...], [A-Z...], [_...]
-  if (/^\[[a-zA-Z_]/.test(pat)) return true;
+  // Only patterns that are purely sequences of character-class groups (e.g., [A-Z_]+ or
+  // [a-z][a-z0-9]*) count as "word patterns" that can shadow keyword literals.
+  // Patterns with mandatory non-class components — such as [A-Z]+(\.[A-Z]+)+ which
+  // requires a literal dot — cannot match simple keyword strings and must be excluded.
+  if (/^\[[a-zA-Z_]/.test(pat) && /^(\[(?:[^\]\\]|\\.)*\][+*?]?)+$/.test(pat)) return true;
   // POSIX character-class expressions that match letter sequences: [[:alpha:]], [[:alnum:]], etc.
-  if (/^\[\[:(alpha|upper|lower|alnum|word):\]/.test(pat)) return true;
+  if (/^\[\[:(alpha|upper|lower|alnum|word):\]\][+*?]*$/.test(pat)) return true;
   // Common abbreviation references for identifiers
-  if (/^\{(id|identifier|ident|IDENT|word|alpha)\}/.test(pat)) return true;
+  if (/^\{(id|identifier|ident|IDENT|word|alpha)\}$/.test(pat)) return true;
   return false;
 }
