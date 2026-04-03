@@ -879,13 +879,15 @@ function getLiteralKeyword(pat: string): string | null {
  * i.e., could match arbitrary letter sequences including keywords.
  */
 function isWordPattern(pat: string): boolean {
-  // Only patterns that are purely sequences of character-class groups (e.g., [A-Z_]+ or
-  // [a-z][a-z0-9]*) count as "word patterns" that can shadow keyword literals.
-  // Patterns with mandatory non-class components — such as [A-Z]+(\.[A-Z]+)+ which
-  // requires a literal dot — cannot match simple keyword strings and must be excluded.
+  // POSIX character-class expressions that match letter sequences (e.g., [[:alpha:]],
+  // [[:alnum:]], or chains like [[:alpha:]][[:alnum:]_]*). A prefix check is sufficient
+  // because these patterns cannot embed mandatory non-letter components.
+  if (/^\[\[:(alpha|upper|lower|alnum|word):\]/.test(pat)) return true;
+  // Simple character-class patterns (e.g., [A-Z_]+ or [a-z][a-z0-9]*): only match when
+  // the ENTIRE pattern consists of character-class groups. Patterns with mandatory
+  // non-class suffixes — e.g., [A-Z]+(\.[A-Z]+)+ which requires a literal dot —
+  // cannot match plain keyword strings and must not trigger the shadowing warning.
   if (/^\[[a-zA-Z_]/.test(pat) && /^(\[(?:[^\]\\]|\\.)*\][+*?]?)+$/.test(pat)) return true;
-  // POSIX character-class expressions that match letter sequences: [[:alpha:]], [[:alnum:]], etc.
-  if (/^\[\[:(alpha|upper|lower|alnum|word):\]\][+*?]*$/.test(pat)) return true;
   // Common abbreviation references for identifiers
   if (/^\{(id|identifier|ident|IDENT|word|alpha)\}$/.test(pat)) return true;
   return false;
