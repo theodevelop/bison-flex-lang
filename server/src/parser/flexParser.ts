@@ -232,10 +232,17 @@ export function parseFlexDocument(text: string): FlexDocument {
     if (pendingScHeader !== null) {
       const closeIdx = trimmed.indexOf('>');
       if (closeIdx >= 0) {
-        // Collect any additional SC names before the >
+        // Collect any additional SC names before the > and record their refs on this line
         const before = trimmed.substring(0, closeIdx);
         const moreConds = before.match(/[A-Za-z_][A-Za-z0-9_]*/g);
-        if (moreConds) pendingScHeader += ',' + moreConds.join(',');
+        if (moreConds) {
+          for (const cond of moreConds) {
+            const col = line.indexOf(cond);
+            if (!doc.startConditionRefs.has(cond)) doc.startConditionRefs.set(cond, []);
+            doc.startConditionRefs.get(cond)!.push(Range.create(i, col >= 0 ? col : 0, i, (col >= 0 ? col : 0) + cond.length));
+          }
+          pendingScHeader += ',' + moreConds.join(',');
+        }
         const conds = pendingScHeader.replace(/^,+/, '').split(',').filter(s => s.length > 0);
         pendingScHeader = null;
         // Expect '{' right after '>' to open the SC block
@@ -245,9 +252,16 @@ export function parseFlexDocument(text: string): FlexDocument {
           // actionDepth stays 0; the { is the SC block opening, not an action block
         }
       } else {
-        // Still accumulating conditions from this line
+        // Still accumulating conditions from this line — record their refs
         const moreConds = trimmed.match(/[A-Za-z_][A-Za-z0-9_]*/g);
-        if (moreConds) pendingScHeader += ',' + moreConds.join(',');
+        if (moreConds) {
+          for (const cond of moreConds) {
+            const col = line.indexOf(cond);
+            if (!doc.startConditionRefs.has(cond)) doc.startConditionRefs.set(cond, []);
+            doc.startConditionRefs.get(cond)!.push(Range.create(i, col >= 0 ? col : 0, i, (col >= 0 ? col : 0) + cond.length));
+          }
+          pendingScHeader += ',' + moreConds.join(',');
+        }
       }
       continue;
     }
@@ -295,7 +309,13 @@ export function parseFlexDocument(text: string): FlexDocument {
       // Multi-line header start: <SC1,   (no closing > on this line)
       const scMultiStart = trimmed.match(/^<([A-Za-z_][A-Za-z0-9_]*(?:,[A-Za-z_][A-Za-z0-9_]*)*,\s*)$/);
       if (scMultiStart) {
-        pendingScHeader = scMultiStart[1].replace(/,\s*$/, '');
+        const firstConds = scMultiStart[1].replace(/,\s*$/, '').split(',').filter(s => s.length > 0);
+        for (const cond of firstConds) {
+          const col = line.indexOf(cond, line.indexOf('<'));
+          if (!doc.startConditionRefs.has(cond)) doc.startConditionRefs.set(cond, []);
+          doc.startConditionRefs.get(cond)!.push(Range.create(i, col >= 0 ? col : 0, i, (col >= 0 ? col : 0) + cond.length));
+        }
+        pendingScHeader = firstConds.join(',');
         continue;
       }
     }
@@ -319,13 +339,15 @@ export function parseFlexDocument(text: string): FlexDocument {
     // ── Extract abbreviation references: {name} (but not C code {}) ───────────
     // Only match {name} where name is a valid identifier
     const abbrRefs = line.matchAll(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g);
+    // To find the action opener '{', first strip all {name} abbreviation refs so that
+    // the leading whitespace before {name} on an indented rule line does not confuse
+    // the \s+{ search into matching the abbreviation's own '{' instead of the action '{'.
+    const strippedForAction = line.replace(/\{[a-zA-Z_][a-zA-Z0-9_]*\}/g, m => ' '.repeat(m.length));
+    const actionMatch = strippedForAction.match(/\s+\{/);
+    const actionStart = actionMatch !== null ? (actionMatch.index! + actionMatch[0].length - 1) : line.length;
     for (const m of abbrRefs) {
       const name = m[1];
-      // Only count as abbreviation ref if it appears before any action block on this line.
-      // If there is no action { on this line (multi-line action), treat actionStart as line.length
-      // so all {name} refs on this line are counted.
-      const actionMatch = line.match(/\s+\{/);
-      const actionStart = actionMatch !== null ? line.indexOf('{', actionMatch.index!) : line.length;
+      // Only count as abbreviation ref if it appears before the action block on this line.
       if (m.index !== undefined && m.index < actionStart) {
         const col = m.index;
         const range = Range.create(i, col, i, col + m[0].length);
