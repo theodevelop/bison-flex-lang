@@ -2,7 +2,7 @@
   "name": "bison-flex-lang",
   "displayName": "Bison/Flex Language Support",
   "description": "Full-featured language support for GNU Bison (.y, .yy) and Flex/RE-flex (.l, .ll) — syntax highlighting with embedded C/C++, real-time diagnostics, intelligent autocompletion, and hover documentation for all directives.",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "publisher": "theodevelop",
   "license": "MIT",
   "repository": {
