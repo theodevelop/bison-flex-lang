@@ -506,6 +506,123 @@ console.log('\n=== TEST: Flex audit checks ===');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Issue #38 — SC refs in multi-line lists / abbrev refs on indented rule lines
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n=== TEST: Issue #38 — SC refs and abbrev refs ===');
+
+{
+  // Multi-line SC block header: all SCs must be recorded in startConditionRefs
+  const src = [
+    '%option noyywrap',
+    '%x SC_A SC_B SC_C',
+    '%%',
+    '<SC_A,',
+    'SC_B,',
+    'SC_C>{',
+    '  [a-z]+ { return 1; }',
+    '}',
+    '%%',
+  ].join('\n');
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  assert(doc.startConditionRefs.has('SC_A') && doc.startConditionRefs.get('SC_A').length >= 1,
+    '#38: SC_A in multi-line block header recorded in startConditionRefs');
+  assert(doc.startConditionRefs.has('SC_B') && doc.startConditionRefs.get('SC_B').length >= 1,
+    '#38: SC_B in multi-line block header recorded in startConditionRefs');
+  assert(doc.startConditionRefs.has('SC_C') && doc.startConditionRefs.get('SC_C').length >= 1,
+    '#38: SC_C (on resolution line) in multi-line block header recorded in startConditionRefs');
+  const diags = computeFlexDiagnostics(doc, src);
+  const unusedSC = diags.filter(d => d.code === 'flex/unused-sc');
+  assert(unusedSC.length === 0, '#38: no false flex/unused-sc for SCs in multi-line block header');
+}
+
+{
+  // Abbrev ref on indented rule line must be counted even with leading whitespace
+  const src = [
+    '%option noyywrap',
+    'DIGIT [0-9]+',
+    '%x ST',
+    '%%',
+    '<ST>{',
+    '  {DIGIT} { return 1; }',
+    '}',
+    '%%',
+  ].join('\n');
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  assert(doc.abbreviationRefs.has('DIGIT') && doc.abbreviationRefs.get('DIGIT').length >= 1,
+    '#38: {DIGIT} on indented rule line inside SC block recorded in abbreviationRefs');
+  const diags = computeFlexDiagnostics(doc, src);
+  const unusedAbbr = diags.filter(d => d.code === 'flex/unused-abbrev');
+  assert(unusedAbbr.length === 0, '#38: no false flex/unused-abbrev for abbrev used on indented rule line');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Transitive abbreviation references (pplex.l scenario)
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n=== TEST: Transitive abbreviation references ===');
+
+{
+  // ALNUM_Q and ALNUM_A are used inside ALNUM's definition, not directly in rules.
+  // They must be counted as referenced so no flex/unused-abbrev is produced.
+  const src = [
+    '%option noyywrap',
+    'ALNUM_Q\t"(\\"[^\\n])*\\""',
+    'ALNUM_A\t"(\\\'[^\\n])*\\\'"',
+    'ALNUM\t{ALNUM_Q}|{ALNUM_A}',
+    '%%',
+    '{ALNUM}\t{ return 1; }',
+    '%%',
+  ].join('\n');
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  assert(doc.abbreviationRefs.has('ALNUM_Q') && doc.abbreviationRefs.get('ALNUM_Q').length >= 1,
+    'transitive-abbrev: ALNUM_Q used in ALNUM definition recorded in abbreviationRefs');
+  assert(doc.abbreviationRefs.has('ALNUM_A') && doc.abbreviationRefs.get('ALNUM_A').length >= 1,
+    'transitive-abbrev: ALNUM_A used in ALNUM definition recorded in abbreviationRefs');
+  const diags = computeFlexDiagnostics(doc, src);
+  const unusedAbbr = diags.filter(d => d.code === 'flex/unused-abbrev');
+  assert(unusedAbbr.length === 0, 'transitive-abbrev: no flex/unused-abbrev for abbreviations used only inside another abbreviation');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// isWordPattern: complex patterns with mandatory groups must not shadow keywords
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n=== TEST: isWordPattern — complex patterns do not shadow keywords ===');
+
+{
+  // [A-Z]+(\.[A-Z]+)+ requires a dot → cannot match "IN" or "OF"
+  // No flex/unreachable-rule should be produced for those keyword rules.
+  const src = [
+    '%option noyywrap',
+    '%x COPY_STATE',
+    '%%',
+    '<COPY_STATE>{',
+    '  [_0-9A-Z]+(\\.[_0-9A-Z]+)+\t{ return TEXT; }',
+    '  "IN"\t{ return 1; }',
+    '  "OF"\t{ return 2; }',
+    '}',
+    '%%',
+  ].join('\n');
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const diags = computeFlexDiagnostics(doc, src);
+  const unreachable = diags.filter(d => d.code === 'flex/unreachable-rule');
+  assert(unreachable.length === 0, 'isWordPattern: keyword rules after [A-Z]+(\\.[A-Z]+)+ must not produce flex/unreachable-rule');
+}
+
+{
+  // [A-Z_]+ IS a simple word pattern → "IF" after it should produce flex/unreachable-rule
+  const src = [
+    '%option noyywrap',
+    '%%',
+    '[A-Z_]+\t{ return WORD; }',
+    '"IF"\t{ return IF_KW; }',
+    '%%',
+  ].join('\n');
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const diags = computeFlexDiagnostics(doc, src);
+  const unreachable = diags.filter(d => d.code === 'flex/unreachable-rule');
+  assert(unreachable.length >= 1, 'isWordPattern: simple [A-Z_]+ still shadows keyword "IF" → flex/unreachable-rule expected');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Bison audit checks
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('\n=== TEST: Bison audit checks ===');
