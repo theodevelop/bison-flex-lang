@@ -2,6 +2,17 @@
 
 All notable changes to the **Bison/Flex Language Support** extension will be documented in this file.
 
+## [1.5.2] - 2026-04-03
+
+### Fixed
+
+- **Flex — SC refs in multi-line block headers** (#38): in `<SC_A,\nSC_B,\nSC_C>{` multi-line syntax, only the SC on the closing line was recorded as a start-condition reference; all preceding SCs had 0 refs, causing false `flex/unused-sc` diagnostics and incorrect Code Lens counts.
+- **Flex — abbreviation refs on indented rule lines** (#38): `{ABBR}` on a rule line indented inside a `<SC>{ }` block was not recorded as an abbreviation reference. The `actionStart` heuristic mistook the leading whitespace before `{ABBR}` itself as the action opener, making `m.index < actionStart` false for all such lines.
+- **Flex — transitive abbreviation references** (#38): abbreviations used only inside another abbreviation's definition (e.g. `ALNUM_LITERAL {ALNUM_LITERAL_Q}|{ALNUM_LITERAL_A}`) were never recorded as referenced, producing false `flex/unused-abbrev` for the inner abbreviations. The parser now scans each definition body for `{name}` references.
+- **Flex — `flex/unreachable-rule` false positive for patterns with mandatory non-class groups** (#38): `isWordPattern` returned `true` for any pattern starting with `[a-zA-Z_` regardless of what followed, so `[_0-9A-Z]+(\.[_0-9A-Z]+)+` (which requires a literal dot and cannot match a plain keyword) was treated as a general identifier pattern, producing false `flex/unreachable-rule` warnings for keyword rules that followed it. `isWordPattern` now requires the entire pattern to consist solely of character-class groups.
+
+---
+
 ## [1.5.1] - 2026-04-02
 
 ### Fixed
