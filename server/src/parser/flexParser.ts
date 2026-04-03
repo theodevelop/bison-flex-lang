@@ -182,6 +182,17 @@ export function parseFlexDocument(text: string): FlexDocument {
         pattern,
         location: Range.create(i, 0, i, name.length),
       });
+      // Record inter-abbreviation references: if this definition body
+      // contains {OTHER}, mark OTHER as referenced so it is not flagged
+      // as unused just because it only appears inside another abbreviation.
+      const patStart = line.indexOf(abbrMatch[2]);
+      for (const ref of pattern.matchAll(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g)) {
+        const refName = ref[1];
+        const refCol = patStart >= 0 ? patStart + ref.index! : ref.index!;
+        const range = Range.create(i, refCol, i, refCol + ref[0].length);
+        if (!doc.abbreviationRefs.has(refName)) doc.abbreviationRefs.set(refName, []);
+        doc.abbreviationRefs.get(refName)!.push(range);
+      }
       continue;
     }
 
