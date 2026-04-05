@@ -623,6 +623,35 @@ console.log('\n=== TEST: isWordPattern — complex patterns do not shadow keywor
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Issue #39 — Code Lens for abbreviations
+// ─────────────────────────────────────────────────────────────────────────────
+console.log('\n=== TEST: Issue #39 — Code Lens for abbreviations ===');
+
+{
+  const { getCodeLenses } = require('../server/src/providers/codeLens');
+  const src = [
+    '%option noyywrap',
+    'DIGIT  [0-9]+',
+    'WORD   [a-z]+',
+    '%%',
+    '{DIGIT}  { return 1; }',
+    '{DIGIT}  { return 2; }',
+    '%%',
+  ].join('\n');
+  const doc = require('../server/src/parser/flexParser').parseFlexDocument(src);
+  const lenses = getCodeLenses(doc, 'file:///test.l');
+
+  // DIGIT is on line 1, WORD on line 2
+  const digitLens = lenses.find((l: any) => l.range.start.line === 1);
+  const wordLens  = lenses.find((l: any) => l.range.start.line === 2);
+
+  assert(!!digitLens, '#39: Code Lens produced for DIGIT abbreviation');
+  assert(digitLens?.command?.title?.includes('2'), '#39: DIGIT lens shows 2 references (used twice in rules)');
+  assert(!!wordLens,  '#39: Code Lens produced for WORD abbreviation');
+  assert(wordLens?.command?.title?.includes('0'), '#39: WORD lens shows 0 references (unused)');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Bison audit checks
 // ─────────────────────────────────────────────────────────────────────────────
 console.log('\n=== TEST: Bison audit checks ===');
