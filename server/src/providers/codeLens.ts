@@ -3,8 +3,9 @@ import { DocumentModel, BisonDocument, FlexDocument, isBisonDocument } from '../
 
 /**
  * Code Lenses:
- *   Bison rules   → "N references"  +  "⬤ entry point" (start symbol only)
- *   Flex SC decls → "N references"
+ *   Bison rules        → "N references"  +  "⬤ entry point" (start symbol only)
+ *   Flex SC decls      → "N references"
+ *   Flex abbreviations → "N references"
  *
  * The "N references" lens triggers `bisonFlex.showReferences` (registered
  * client-side) which calls `editor.action.showReferences` with pre-built args.
@@ -67,6 +68,22 @@ function getFlexCodeLenses(doc: FlexDocument, uri: string): CodeLens[] {
         'bisonFlex.showReferences',
         uri,
         { line, character: sc.location.start.character },
+      ),
+    });
+  }
+
+  for (const [name, abbr] of doc.abbreviations) {
+    const line = abbr.location.start.line;
+    const lensRange = Range.create(line, 0, line, 0);
+    const refCount = doc.abbreviationRefs.get(name)?.length ?? 0;
+
+    lenses.push({
+      range: lensRange,
+      command: Command.create(
+        `$(references) ${refCount} reference${refCount !== 1 ? 's' : ''}`,
+        'bisonFlex.showReferences',
+        uri,
+        { line, character: abbr.location.start.character },
       ),
     });
   }

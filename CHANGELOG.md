@@ -2,7 +2,11 @@
 
 All notable changes to the **Bison/Flex Language Support** extension will be documented in this file.
 
-## [1.5.2] - 2026-04-03
+## [1.5.2] - 2026-04-05
+
+### Added
+
+- **Flex — Code Lens for abbreviations** (#39): abbreviation definitions in the definitions section now show a clickable "N references" Code Lens, consistent with start conditions and Bison rules. Clicking opens the References panel with all `{ABBR}` usages in the rules section.
 
 ### Fixed
 
