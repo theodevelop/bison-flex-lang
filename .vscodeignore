@@ -25,3 +25,5 @@ package-lock.json
 .env
 .env.*
 docs/
+graphify-out/
+tests/manuals/
