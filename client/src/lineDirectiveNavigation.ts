@@ -158,8 +158,8 @@ async function findGeneratedFile(sourceFilePath: string): Promise<string | null>
   }
 
   // Workspace-wide search as last resort — let user pick if ambiguous
-  pattern = isBison ? `**/${base}.tab.{c,cpp,cc}` : `**/lex.yy.{c,cc}`;
-  found = await workspace.findFiles(pattern, '**/node_modules/**', 10);
+  let pattern = isBison ? `**/${base}.tab.{c,cpp,cc}` : `**/lex.yy.{c,cc}`;
+  let found = await workspace.findFiles(pattern, '**/node_modules/**', 10);
 
   // in case of no results, check for ylwrap names (no tab/lex)
   // we only do that after the initial run to not force a picker if
