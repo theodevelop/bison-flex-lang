@@ -59,6 +59,7 @@ const BISON_CANDIDATES = (base: string, dir: string): string[] => [
   path.join(dir, base + '.tab.cc'),
   path.join(dir, base + '.c'),
   path.join(dir, base + '.cc'),
+  path.join(dir, base + '.c++'),
   path.join(dir, base + '.cxx'),
   path.join(dir, base + '.cpp'),
 ];
@@ -70,6 +71,7 @@ const FLEX_CANDIDATES = (base: string, dir: string): string[] => [
   path.join(dir, base + '.yy.cpp'),
   path.join(dir, base + '.c'),
   path.join(dir, base + '.cc'),
+  path.join(dir, base + '.c++'),
   path.join(dir, base + '.cxx'),
   path.join(dir, base + '.cpp'),
 ];
