@@ -57,6 +57,10 @@ const BISON_CANDIDATES = (base: string, dir: string): string[] => [
   path.join(dir, base + '.tab.c'),
   path.join(dir, base + '.tab.cpp'),
   path.join(dir, base + '.tab.cc'),
+  path.join(dir, base + '.c'),
+  path.join(dir, base + '.cc'),
+  path.join(dir, base + '.cxx'),
+  path.join(dir, base + '.cpp'),
 ];
 
 const FLEX_CANDIDATES = (base: string, dir: string): string[] => [
@@ -64,6 +68,10 @@ const FLEX_CANDIDATES = (base: string, dir: string): string[] => [
   path.join(dir, 'lex.yy.cc'),
   path.join(dir, base + '.yy.c'),
   path.join(dir, base + '.yy.cpp'),
+  path.join(dir, base + '.c'),
+  path.join(dir, base + '.cc'),
+  path.join(dir, base + '.cxx'),
+  path.join(dir, base + '.cpp'),
 ];
 
 /** Scan CMakeLists.txt up the directory tree and return a build directory hint. */
@@ -132,7 +140,7 @@ async function findGeneratedFile(sourceFilePath: string): Promise<string | null>
   const sourceDir = path.dirname(sourceFilePath);
   const base = path.basename(sourceFilePath, path.extname(sourceFilePath));
   const ext = path.extname(sourceFilePath).toLowerCase();
-  const isBison = ['.y', '.yy', '.ypp', '.bison'].includes(ext);
+  const isBison = ['.y', '.yy', '.y++', '.ypp', '.yxx', '.bison'].includes(ext);
   const candidates = isBison ? BISON_CANDIDATES : FLEX_CANDIDATES;
 
   const dirsToTry: string[] = [];
@@ -150,8 +158,17 @@ async function findGeneratedFile(sourceFilePath: string): Promise<string | null>
   }
 
   // Workspace-wide search as last resort — let user pick if ambiguous
-  const pattern = isBison ? `**/${base}.tab.{c,cpp,cc}` : `**/lex.yy.{c,cc}`;
-  const found = await workspace.findFiles(pattern, '**/node_modules/**', 10);
+  pattern = isBison ? `**/${base}.tab.{c,cpp,cc}` : `**/lex.yy.{c,cc}`;
+  found = await workspace.findFiles(pattern, '**/node_modules/**', 10);
+
+  // in case of no results, check for ylwrap names (no tab/lex)
+  // we only do that after the initial run to not force a picker if
+  // the tool's default names are available somewhere in the workspace
+  if (found.length === 0) {
+    pattern = `**/${base}.{c,cc,c++,cxx,cpp}`;
+    found = await workspace.findFiles(pattern, '**/node_modules/**', 10);
+  }
+  
   if (found.length === 0) return null;
   if (found.length === 1) return found[0].fsPath;
 
