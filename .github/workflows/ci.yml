@@ -5,6 +5,7 @@ on:
     branches: ["main", "dev"]
   pull_request:
     branches: ["main", "dev"]
+  # manual run in actions tab - for all branches
   workflow_dispatch:
 
 jobs:
