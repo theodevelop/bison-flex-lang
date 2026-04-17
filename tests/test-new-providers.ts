@@ -213,6 +213,7 @@ const fakeDiag: Diagnostic = {
   range: Range.create(3, 10, 3, 19),
   message: `Token 'UNDECLARED' is used but not declared with %token.`,
   source: 'bison',
+  code: 'bison/undeclared-token',
 };
 
 const caParams: CodeActionParams = {
