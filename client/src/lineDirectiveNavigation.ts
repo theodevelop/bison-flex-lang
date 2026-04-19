@@ -59,7 +59,10 @@ function getNavChannel(): OutputChannel {
   return navChannel;
 }
 
-/** Resolve `bisonFlex.buildDirectory`: substitutes ${workspaceFolder} and resolves relative paths. */
+/** Resolve `bisonFlex.buildDirectory`: substitutes ${workspaceFolder} and resolves relative paths.
+ *  In multi-root workspaces, folders[0] is used as the root for relative paths.
+ *  workspaceFile is intentionally not used: a .code-workspace file can be stored anywhere
+ *  outside the workspace, making it unsuitable as a base for resolving grammar paths. */
 function resolveSettingBuildDir(rawDir: string, sourceFilePath: string): string {
   const wsFolder = workspace.workspaceFolders?.[0]?.uri.fsPath ?? path.dirname(sourceFilePath);
   let resolved = rawDir.replace(/\$\{workspaceFolder\}/g, wsFolder);
@@ -153,11 +156,18 @@ function findMakefileBuildDir(sourceFilePath: string): string | undefined {
   return undefined;
 }
 
+let lastFoundCache: { sourceFilePath: string; buildDir: string; generatedPath: string } | undefined;
+
 /** Locate the generated file corresponding to a grammar source file. */
 async function findGeneratedFile(sourceFilePath: string): Promise<string | null> {
   const ch = getNavChannel();
   const config = workspace.getConfiguration('bisonFlex');
   const rawBuildDir = config.get<string>('buildDirectory', '').trim();
+
+  if (lastFoundCache?.sourceFilePath === sourceFilePath && lastFoundCache.buildDir === rawBuildDir) {
+    return lastFoundCache.generatedPath;
+  }
+
   const settingBuildDir = rawBuildDir ? resolveSettingBuildDir(rawBuildDir, sourceFilePath) : undefined;
   const sourceDir = path.dirname(sourceFilePath);
   const base = path.basename(sourceFilePath, path.extname(sourceFilePath));
@@ -187,6 +197,7 @@ async function findGeneratedFile(sourceFilePath: string): Promise<string | null>
       ch.appendLine(`    ${c}`);
       if (fs.existsSync(c)) {
         ch.appendLine(`  ✓ found: ${c}`);
+        lastFoundCache = { sourceFilePath, buildDir: rawBuildDir, generatedPath: c };
         return c;
       }
     }
@@ -212,6 +223,7 @@ async function findGeneratedFile(sourceFilePath: string): Promise<string | null>
   }
   if (found.length === 1) {
     ch.appendLine(`  ✓ found (workspace): ${found[0].fsPath}`);
+    lastFoundCache = { sourceFilePath, buildDir: rawBuildDir, generatedPath: found[0].fsPath };
     return found[0].fsPath;
   }
 
@@ -220,7 +232,11 @@ async function findGeneratedFile(sourceFilePath: string): Promise<string | null>
     { placeHolder: 'Multiple generated files found — select one' }
   );
   ch.appendLine(`  ✓ user selected: ${pick?.fsPath ?? '(cancelled)'}`);
-  return pick ? pick.fsPath : null;
+  if (pick) {
+    lastFoundCache = { sourceFilePath, buildDir: rawBuildDir, generatedPath: pick.fsPath };
+    return pick.fsPath;
+  }
+  return null;
 }
 
 /**
