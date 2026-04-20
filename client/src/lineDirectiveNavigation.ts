@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { window, workspace, Uri, Position, Range, ViewColumn } from 'vscode';
+import { window, workspace, Uri, Position, Range, ViewColumn, OutputChannel } from 'vscode';
 
 export { isGeneratedFile } from './lineDirectiveUtils';
 import { isGeneratedFile, findNearestLineDirective } from './lineDirectiveUtils';
@@ -49,6 +49,27 @@ export async function showInSource(): Promise<void> {
   const doc = await workspace.openTextDocument(Uri.file(sourcePath));
   const pos = new Position(targetLine, 0);
   await window.showTextDocument(doc, { selection: new Range(pos, pos), viewColumn: ViewColumn.Active });
+}
+
+// ── Navigation output channel ────────────────────────────────────────────────
+
+let navChannel: OutputChannel | undefined;
+function getNavChannel(): OutputChannel {
+  if (!navChannel) navChannel = window.createOutputChannel('Bison/Flex Navigation');
+  return navChannel;
+}
+
+/** Resolve `bisonFlex.buildDirectory`: substitutes ${workspaceFolder} and resolves relative paths.
+ *  In multi-root workspaces, folders[0] is used as the root for relative paths.
+ *  workspaceFile is intentionally not used: a .code-workspace file can be stored anywhere
+ *  outside the workspace, making it unsuitable as a base for resolving grammar paths. */
+function resolveSettingBuildDir(rawDir: string, sourceFilePath: string): string {
+  const wsFolder = workspace.workspaceFolders?.[0]?.uri.fsPath ?? path.dirname(sourceFilePath);
+  let resolved = rawDir.replace(/\$\{workspaceFolder\}/g, wsFolder);
+  if (!path.isAbsolute(resolved)) {
+    resolved = path.resolve(wsFolder, resolved);
+  }
+  return resolved;
 }
 
 // ── Direction 2: source → generated ──────────────────────────────────────────
@@ -135,15 +156,32 @@ function findMakefileBuildDir(sourceFilePath: string): string | undefined {
   return undefined;
 }
 
+let lastFoundCache: { sourceFilePath: string; buildDir: string; generatedPath: string } | undefined;
+
 /** Locate the generated file corresponding to a grammar source file. */
 async function findGeneratedFile(sourceFilePath: string): Promise<string | null> {
+  const ch = getNavChannel();
   const config = workspace.getConfiguration('bisonFlex');
-  const settingBuildDir = config.get<string>('buildDirectory', '').trim() || undefined;
+  const rawBuildDir = config.get<string>('buildDirectory', '').trim();
+
+  if (lastFoundCache?.sourceFilePath === sourceFilePath && lastFoundCache.buildDir === rawBuildDir) {
+    return lastFoundCache.generatedPath;
+  }
+
+  const settingBuildDir = rawBuildDir ? resolveSettingBuildDir(rawBuildDir, sourceFilePath) : undefined;
   const sourceDir = path.dirname(sourceFilePath);
   const base = path.basename(sourceFilePath, path.extname(sourceFilePath));
   const ext = path.extname(sourceFilePath).toLowerCase();
   const isBison = ['.y', '.yy', '.y++', '.ypp', '.yxx', '.bison'].includes(ext);
   const candidates = isBison ? BISON_CANDIDATES : FLEX_CANDIDATES;
+
+  ch.show(true);
+  ch.appendLine(`\n─── Show in Generated: ${path.basename(sourceFilePath)} ───`);
+  if (rawBuildDir) {
+    ch.appendLine(`  buildDirectory: "${rawBuildDir}" → ${settingBuildDir}`);
+  } else {
+    ch.appendLine(`  buildDirectory: (not set)`);
+  }
 
   const dirsToTry: string[] = [];
   if (settingBuildDir) dirsToTry.push(settingBuildDir);
@@ -154,12 +192,19 @@ async function findGeneratedFile(sourceFilePath: string): Promise<string | null>
   dirsToTry.push(sourceDir);
 
   for (const dir of dirsToTry) {
+    ch.appendLine(`  dir: ${dir}`);
     for (const c of candidates(base, dir)) {
-      if (fs.existsSync(c)) return c;
+      ch.appendLine(`    ${c}`);
+      if (fs.existsSync(c)) {
+        ch.appendLine(`  ✓ found: ${c}`);
+        lastFoundCache = { sourceFilePath, buildDir: rawBuildDir, generatedPath: c };
+        return c;
+      }
     }
   }
 
   // Workspace-wide search as last resort — let user pick if ambiguous
+  ch.appendLine(`  → no local match, trying workspace search`);
   let pattern = isBison ? `**/${base}.tab.{c,cpp,cc}` : `**/lex.yy.{c,cc}`;
   let found = await workspace.findFiles(pattern, '**/node_modules/**', 10);
 
@@ -168,17 +213,30 @@ async function findGeneratedFile(sourceFilePath: string): Promise<string | null>
   // the tool's default names are available somewhere in the workspace
   if (found.length === 0) {
     pattern = `**/${base}.{c,cc,c++,cxx,cpp}`;
+    ch.appendLine(`  → retrying with ylwrap pattern: ${pattern}`);
     found = await workspace.findFiles(pattern, '**/node_modules/**', 10);
   }
-  
-  if (found.length === 0) return null;
-  if (found.length === 1) return found[0].fsPath;
+
+  if (found.length === 0) {
+    ch.appendLine(`  ✗ not found`);
+    return null;
+  }
+  if (found.length === 1) {
+    ch.appendLine(`  ✓ found (workspace): ${found[0].fsPath}`);
+    lastFoundCache = { sourceFilePath, buildDir: rawBuildDir, generatedPath: found[0].fsPath };
+    return found[0].fsPath;
+  }
 
   const pick = await window.showQuickPick(
     found.map(u => ({ label: workspace.asRelativePath(u), fsPath: u.fsPath })),
     { placeHolder: 'Multiple generated files found — select one' }
   );
-  return pick ? pick.fsPath : null;
+  ch.appendLine(`  ✓ user selected: ${pick?.fsPath ?? '(cancelled)'}`);
+  if (pick) {
+    lastFoundCache = { sourceFilePath, buildDir: rawBuildDir, generatedPath: pick.fsPath };
+    return pick.fsPath;
+  }
+  return null;
 }
 
 /**
