@@ -2,6 +2,28 @@
 
 All notable changes to the **Bison/Flex Language Support** extension will be documented in this file.
 
+## [1.5.3] - 2026-04-20
+
+### Added
+
+- **Show in Generated File — output channel** (#27): a dedicated *Bison/Flex Navigation* output channel now logs every directory and file path searched when locating the generated file. The channel is shown automatically when the search starts, making it easy to diagnose `buildDirectory` misconfigurations.
+- **Show in Generated File — automake file names** (#45, contributed by [@GitMensch](https://github.com/GitMensch)): the generated-file search now also looks for the automake-style names used when Bison/Flex is called from an automake rule (`.tab.c`/`.tab.h`, `_tab.c`/`_tab.h`, `lex.yy.c`, `lex._.c`, and their `.cc`/`.cpp` variants).
+
+### Fixed
+
+- **Show in Source — `#line` offset and unquoted filenames** (#44): the command now correctly handles `#line` directives without quoted filenames (e.g. `#line 42 parser.y` in addition to `#line 42 "parser.y"`), and the line offset is now computed correctly so the editor opens at the exact grammar line.
+- **Show in Generated File — cached lookup / multi-root workspaces** (#27): the last successfully found generated file is cached per source file, avoiding redundant filesystem scans on repeated calls. In multi-root workspaces `${workspaceFolder}` in `bisonFlex.buildDirectory` now resolves to the workspace folder that contains the source file, so a single setting works correctly across all roots.
+
+### Documentation
+
+- `bisonFlex.buildDirectory` is now documented in the README with supported formats (`${workspaceFolder}`, relative paths, absolute paths) and multi-root workspace behaviour.
+
+### CI / Internal
+
+- Workflows consolidated: CI now runs on `push`/`pull_request` for both `main` and `dev`; the VSIX artifact is built on every CI run.
+
+---
+
 ## [1.5.2] - 2026-04-05
 
 ### Added
