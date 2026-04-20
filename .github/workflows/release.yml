@@ -6,13 +6,23 @@ on:
       - "v*"
 
 jobs:
-  package:
+  release:
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify tag is on main
+        run: |
+          git fetch origin main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "❌ Release tags must be created from the main branch."
+            exit 1
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -24,12 +34,30 @@ jobs:
         run: npm ci
 
       - name: Build VSIX
-        run: |
-          npm run package
-          npx vsce package
+        run: npx vsce package
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: "*.vsix"
           generate_release_notes: true
+
+      - name: Publish to Open VSX
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          if [ -z "$OVSX_PAT" ]; then
+            echo "⚠️  OVSX_PAT not set — skipping Open VSX publish"
+          else
+            npx ovsx publish *.vsix --pat "$OVSX_PAT"
+          fi
+
+      - name: Publish to VS Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "⚠️  VSCE_PAT not set — skipping VS Marketplace publish"
+          else
+            npx vsce publish --pat "$VSCE_PAT"
+          fi

@@ -5,6 +5,8 @@ on:
     branches: ["main", "dev"]
   pull_request:
     branches: ["main", "dev"]
+  # manual run in actions tab - for all branches
+  workflow_dispatch:
 
 jobs:
   build-and-test:
@@ -25,8 +27,23 @@ jobs:
       - name: Compile
         run: npm run compile
 
-      - name: Run parser tests
+      - name: Test — parsers
         run: npx ts-node --project server/tsconfig.json tests/test-parsers.ts
+
+      - name: Test — diagnostic codes
+        run: TS_NODE_PROJECT=tsconfig.base.json npx ts-node tests/test-diagnostic-codes.ts
+
+      - name: Test — version settings
+        run: TS_NODE_PROJECT=tsconfig.base.json npx ts-node tests/test-version-settings.ts
+
+      - name: Test — fix-it hints (code actions)
+        run: TS_NODE_PROJECT=tsconfig.base.json npx ts-node tests/test-fix-it-hints.ts
+
+      - name: Test — line directive utils
+        run: TS_NODE_PROJECT=tsconfig.base.json npx ts-node tests/test-line-directive.ts
+
+      - name: Test — new providers
+        run: TS_NODE_PROJECT=tsconfig.base.json npx ts-node tests/test-new-providers.ts
 
       - name: Package VSIX
         run: npx vsce package --no-dependencies -o extension.vsix

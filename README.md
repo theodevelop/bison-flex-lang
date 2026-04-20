@@ -77,6 +77,16 @@ Jump between Bison/Flex grammar sources and their generated C files using `#line
 - **Bison/Flex: Show in Source** — from a generated `.tab.c` / `lex.yy.c` file, reads the nearest `#line N "file.y"` directive above the cursor and opens the grammar source at the correct line. Appears in the context menu only when a generated file is detected.
 - **Bison/Flex: Show in Generated File** — from a `.y` / `.l` source, locates the generated file and navigates to the matching line. Searches `bisonFlex.buildDirectory`, then CMake/Makefile detection, then the same directory, then a workspace-wide scan. A QuickPick is shown when multiple candidates are found.
 
+#### Configuring `bisonFlex.buildDirectory`
+
+Set this to the directory where Bison/Flex writes its generated files when they are not placed next to the source:
+
+- **`${workspaceFolder}`** — resolved to the workspace folder that contains the source file. In multi-root workspaces each folder resolves independently, so a single setting works across all roots.
+- **Relative path** — resolved relative to that same workspace folder (e.g. `build` or `cmake-build-debug/parser`).
+- **Absolute path** — used as-is.
+
+If the setting is empty or the generated file is not found there, the extension falls back to CMake/Makefile-detected paths, then the source file's own directory, then a workspace-wide scan.
+
 ### Autocompletion
 
 Context-aware suggestions triggered as you type:
@@ -226,7 +236,7 @@ Then press `F5` in VS Code to launch the Extension Development Host.
 | `bisonFlex.minVersionBison` | `string` | `""` | Suppress checks that require a newer Bison version (e.g. `"3.0"`). Fires `bison/feature-requires-version` when a `%define` feature exceeds this version. |
 | `bisonFlex.minVersionFlex` | `string` | `""` | Same as above for Flex. |
 | `bisonFlex.disabledChecks` | `array` | `[]` | Diagnostic code slugs to suppress entirely (e.g. `["bison/shift-reduce", "flex/missing-yywrap"]`). |
-| `bisonFlex.buildDirectory` | `string` | `""` | Path to the build output directory. Used by **Show in Generated File** to locate `.tab.c` / `lex.yy.c` when they are not next to the source. |
+| `bisonFlex.buildDirectory` | `string` | `""` | Directory where Bison/Flex writes its generated files (`.tab.c`, `lex.yy.c`). Supports `${workspaceFolder}` (resolved per workspace root in multi-root setups), paths relative to that root, and absolute paths. See [Configuring `bisonFlex.buildDirectory`](#configuring-bisonflexbuilddirectory) for details. |
 
 ---
 

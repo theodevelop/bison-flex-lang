@@ -7,3 +7,7 @@ server/out/
 tests/_*
 docs/
 .vscode/
+.claude/
+graphify-out/
+tests/manuals/
+.vscode/launch.json
