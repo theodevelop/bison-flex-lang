@@ -5,9 +5,12 @@ server/out/
 *.vsix
 .env
 tests/_*
-docs/
 .vscode/
 .claude/
 graphify-out/
 tests/manuals/
 .vscode/launch.json
+CLAUDE.md
+docs/INDEX.md
+docs/TODO.md
+docs/superpowers
