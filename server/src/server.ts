@@ -47,12 +47,15 @@ import { getWorkspaceSymbols } from './providers/workspaceSymbols';
 import { getCodeLenses } from './providers/codeLens';
 import { computeCmakeDiagnostic } from './providers/cmake';
 import { ExtensionSettings, DEFAULT_SETTINGS } from './providers/settings';
+import { WorkspaceIndex } from './project/projectModel';
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
 
 // Cache of parsed documents
 const documentModels = new Map<string, DocumentModel>();
+
+let workspaceIndex: WorkspaceIndex | undefined;
 
 connection.onInitialize((_params: InitializeParams): InitializeResult => {
   return {
@@ -77,6 +80,17 @@ connection.onInitialize((_params: InitializeParams): InitializeResult => {
       codeLensProvider: { resolveProvider: false },
     },
   };
+});
+
+connection.onInitialized(() => {
+  void (async () => {
+    const folders = (await connection.workspace.getWorkspaceFolders()) ?? [];
+    const roots = folders.map(f => URI.parse(f.uri).fsPath);
+    if (roots.length > 0) {
+      workspaceIndex = new WorkspaceIndex(roots[0]);
+      void workspaceIndex.initialize(roots);
+    }
+  })();
 });
 
 // Revalidate on document change
