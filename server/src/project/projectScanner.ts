@@ -157,6 +157,8 @@ export function generatedCandidates(
       // Automake style (underscore separator)
       { file: path.join(dir, 'lex_yy.c'), kind: 'lex.yy.c' },
       { file: path.join(dir, 'lex_yy.cpp'), kind: 'lex.yy.cpp' },
+      { file: path.join(dir, 'lex._.c'), kind: 'lex.yy.c' },
+      { file: path.join(dir, 'lex._.cpp'), kind: 'lex.yy.cpp' },
     ];
   }
 }
