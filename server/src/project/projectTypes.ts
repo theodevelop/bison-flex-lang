@@ -12,6 +12,8 @@ export interface BisonSourceFile {
   uri: string;
   fsPath: string;
   language: 'bison';
+  workspaceRoot: string;
+  relativePath: string;
   buildDirectory?: string;
   outputFile?: string;
 }
@@ -20,12 +22,16 @@ export interface FlexSourceFile {
   uri: string;
   fsPath: string;
   language: 'flex' | 'reflex';
+  workspaceRoot: string;
+  relativePath: string;
 }
 
 export interface ParserScannerPair {
   parser: BisonSourceFile;
   scanner: FlexSourceFile;
   confidence: 'explicit' | 'inferred';
+  source: 'cmake' | 'basename' | 'normalized-stem';
+  reason: string;
 }
 
 export interface GeneratedFile {

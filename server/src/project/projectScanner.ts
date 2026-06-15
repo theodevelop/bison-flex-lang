@@ -12,16 +12,157 @@ import {
 
 const EXCLUDE_DIRS = new Set(['node_modules', 'dist', '.git', 'vendor']);
 
-const BISON_EXTENSIONS = new Set(['.y', '.yy']);
-const FLEX_EXTENSIONS = new Set(['.l', '.ll']);
+const BISON_EXTENSIONS = new Set(['.y', '.yy', '.ypp', '.bison']);
+const FLEX_EXTENSIONS = new Set(['.l', '.ll', '.lex', '.flex']);
 
 const STEM_SUFFIXES = [
   '_parser', '_scanner', '-parser', '-scanner',
   'parser', 'scanner', '_lex', '_tab',
 ];
 
+// ─── Pure exported functions ─────────────────────────────────────────────────
+
+export function normalizeStem(name: string): string {
+  let stem = path.basename(name, path.extname(name)).toLowerCase();
+  for (const suffix of STEM_SUFFIXES) {
+    if (stem.endsWith(suffix) && stem.length > suffix.length) {
+      stem = stem.slice(0, -suffix.length);
+      break;
+    }
+  }
+  return stem;
+}
+
+export function detectPairsFromPaths(
+  bisonPaths: string[],
+  flexPaths: string[],
+): Array<{ bisonPath: string; flexPath: string; source: 'basename' | 'normalized-stem'; reason: string }> {
+  const pairs: Array<{ bisonPath: string; flexPath: string; source: 'basename' | 'normalized-stem'; reason: string }> = [];
+  const pairedBison = new Set<string>();
+  const pairedFlex = new Set<string>();
+
+  // Pass 1 — identical basename (no extension)
+  for (const bPath of bisonPaths) {
+    const bBase = path.basename(bPath, path.extname(bPath));
+    for (const fPath of flexPaths) {
+      const fBase = path.basename(fPath, path.extname(fPath));
+      if (bBase === fBase) {
+        pairs.push({
+          bisonPath: bPath,
+          flexPath: fPath,
+          source: 'basename',
+          reason: `same basename "${bBase}"`,
+        });
+        pairedBison.add(bPath);
+        pairedFlex.add(fPath);
+        break;
+      }
+    }
+  }
+
+  // Pass 2 — normalized stem (suffix stripping)
+  for (const bPath of bisonPaths) {
+    if (pairedBison.has(bPath)) continue;
+    const bStem = normalizeStem(bPath);
+    if (!bStem) continue;
+
+    for (const fPath of flexPaths) {
+      if (pairedFlex.has(fPath)) continue;
+      const fStem = normalizeStem(fPath);
+      if (bStem === fStem) {
+        const bBase = path.basename(bPath, path.extname(bPath));
+        const fBase = path.basename(fPath, path.extname(fPath));
+        pairs.push({
+          bisonPath: bPath,
+          flexPath: fPath,
+          source: 'normalized-stem',
+          reason: `normalized stem "${bStem}" from "${bBase}" and "${fBase}"`,
+        });
+        pairedBison.add(bPath);
+        pairedFlex.add(fPath);
+        break;
+      }
+    }
+  }
+
+  return pairs;
+}
+
+export function parseCmakePairs(
+  content: string,
+): Array<{ bisonFile: string; flexFile: string }> {
+  const bisonTargets = new Map<string, string>(); // target name (upper) → file
+  const flexTargets = new Map<string, string>();
+
+  const bisonTargetRe = /BISON_TARGET\s*\(\s*(\w+)\s+(\S+)/gi;
+  const flexTargetRe = /FLEX_TARGET\s*\(\s*(\w+)\s+(\S+)/gi;
+  const depRe = /ADD_FLEX_BISON_DEPENDENCY\s*\(\s*(\w+)\s+(\w+)\s*\)/gi;
+
+  let m: RegExpExecArray | null;
+
+  while ((m = bisonTargetRe.exec(content)) !== null) {
+    bisonTargets.set(m[1].toUpperCase(), m[2]);
+  }
+  while ((m = flexTargetRe.exec(content)) !== null) {
+    flexTargets.set(m[1].toUpperCase(), m[2]);
+  }
+
+  const pairs: Array<{ bisonFile: string; flexFile: string }> = [];
+  while ((m = depRe.exec(content)) !== null) {
+    const flexName = m[1].toUpperCase();
+    const bisonName = m[2].toUpperCase();
+    const flexFile = flexTargets.get(flexName);
+    const bisonFile = bisonTargets.get(bisonName);
+    if (flexFile && bisonFile) {
+      pairs.push({ bisonFile, flexFile });
+    }
+  }
+
+  return pairs;
+}
+
+export function generatedCandidates(
+  sourcePath: string,
+  buildDir: string | undefined,
+  lang: 'bison' | 'flex',
+): Array<{ file: string; kind: GeneratedFile['kind'] }> {
+  const dir = buildDir ?? path.dirname(sourcePath);
+  const stem = path.basename(sourcePath, path.extname(sourcePath));
+
+  if (lang === 'bison') {
+    return [
+      // GNU style
+      { file: path.join(dir, `${stem}.tab.c`), kind: 'tab.c' },
+      { file: path.join(dir, `${stem}.tab.cpp`), kind: 'tab.cpp' },
+      { file: path.join(dir, `${stem}.tab.h`), kind: 'tab.h' },
+      { file: path.join(dir, `${stem}.tab.hpp`), kind: 'tab.h' },
+      { file: path.join(dir, `${stem}.output`), kind: 'output' },
+      { file: path.join(dir, `${stem}.xml`), kind: 'xml' },
+      { file: path.join(dir, `${stem}.gv`), kind: 'gv' },
+      // Automake style
+      { file: path.join(dir, `${stem}_tab.c`), kind: 'tab.c' },
+      { file: path.join(dir, `${stem}_tab.cpp`), kind: 'tab.cpp' },
+      { file: path.join(dir, `${stem}_tab.h`), kind: 'tab.h' },
+      { file: path.join(dir, `${stem}_tab.hpp`), kind: 'tab.h' },
+    ];
+  } else {
+    return [
+      // GNU style
+      { file: path.join(dir, 'lex.yy.c'), kind: 'lex.yy.c' },
+      { file: path.join(dir, 'lex.yy.cpp'), kind: 'lex.yy.cpp' },
+      { file: path.join(dir, `${stem}.yy.cpp`), kind: 'lex.yy.cpp' },
+      // Automake style
+      { file: path.join(dir, `lex.${stem}.c`), kind: 'lex.yy.c' },
+      { file: path.join(dir, `lex.${stem}.cpp`), kind: 'lex.yy.cpp' },
+    ];
+  }
+}
+
+// ─── Internal scan helpers ───────────────────────────────────────────────────
+
 async function walkDir(
   dir: string,
+  root: string,
   bisonFiles: BisonSourceFile[],
   flexFiles: FlexSourceFile[],
 ): Promise<void> {
@@ -35,17 +176,18 @@ async function walkDir(
   for (const entry of entries) {
     if (entry.isDirectory()) {
       if (!EXCLUDE_DIRS.has(entry.name)) {
-        await walkDir(path.join(dir, entry.name), bisonFiles, flexFiles);
+        await walkDir(path.join(dir, entry.name), root, bisonFiles, flexFiles);
       }
     } else if (entry.isFile()) {
       const ext = path.extname(entry.name).toLowerCase();
       const fsPath = path.join(dir, entry.name);
       const uri = URI.file(fsPath).toString();
+      const relativePath = path.relative(root, fsPath);
 
       if (BISON_EXTENSIONS.has(ext)) {
-        bisonFiles.push({ uri, fsPath, language: 'bison' });
+        bisonFiles.push({ uri, fsPath, language: 'bison', workspaceRoot: root, relativePath });
       } else if (FLEX_EXTENSIONS.has(ext)) {
-        flexFiles.push({ uri, fsPath, language: 'flex' });
+        flexFiles.push({ uri, fsPath, language: 'flex', workspaceRoot: root, relativePath });
       }
     }
   }
@@ -54,7 +196,7 @@ async function walkDir(
 async function findBuildSystems(workspaceRoot: string): Promise<BuildSystemInfo[]> {
   const results: BuildSystemInfo[] = [];
 
-  const checkFile = async (filePath: string, kind: BuildSystemInfo['kind']): Promise<void> => {
+  const tryAdd = async (filePath: string, kind: BuildSystemInfo['kind']): Promise<void> => {
     try {
       await fs.promises.access(filePath);
       results.push({ kind, configFile: filePath });
@@ -63,12 +205,11 @@ async function findBuildSystems(workspaceRoot: string): Promise<BuildSystemInfo[
     }
   };
 
-  await checkFile(path.join(workspaceRoot, 'CMakeLists.txt'), 'cmake');
-  await checkFile(path.join(workspaceRoot, 'Makefile'), 'make');
-  await checkFile(path.join(workspaceRoot, 'configure.ac'), 'automake');
-  await checkFile(path.join(workspaceRoot, 'Makefile.am'), 'automake');
+  await tryAdd(path.join(workspaceRoot, 'CMakeLists.txt'), 'cmake');
+  await tryAdd(path.join(workspaceRoot, 'Makefile'), 'make');
+  await tryAdd(path.join(workspaceRoot, 'configure.ac'), 'automake');
+  await tryAdd(path.join(workspaceRoot, 'Makefile.am'), 'automake');
 
-  // Also check immediate subdirectories (depth 1)
   let entries: fs.Dirent[];
   try {
     entries = await fs.promises.readdir(workspaceRoot, { withFileTypes: true });
@@ -78,23 +219,11 @@ async function findBuildSystems(workspaceRoot: string): Promise<BuildSystemInfo[
 
   for (const entry of entries) {
     if (entry.isDirectory() && !EXCLUDE_DIRS.has(entry.name)) {
-      const subDir = path.join(workspaceRoot, entry.name);
-      await checkFile(path.join(subDir, 'CMakeLists.txt'), 'cmake');
+      await tryAdd(path.join(workspaceRoot, entry.name, 'CMakeLists.txt'), 'cmake');
     }
   }
 
   return results;
-}
-
-function normalizeStem(name: string): string {
-  let stem = path.basename(name, path.extname(name)).toLowerCase();
-  for (const suffix of STEM_SUFFIXES) {
-    if (stem.endsWith(suffix)) {
-      stem = stem.slice(0, -suffix.length);
-      break;
-    }
-  }
-  return stem;
 }
 
 async function detectExplicitPairs(
@@ -114,75 +243,24 @@ async function detectExplicitPairs(
       continue;
     }
 
-    // Match BISON_TARGET and FLEX_TARGET names, then add_flex_bison_dependency
-    const bisonTargetRe = /BISON_TARGET\s*\(\s*\w+\s+([^\s)]+)/g;
-    const flexTargetRe = /FLEX_TARGET\s*\(\s*\w+\s+([^\s)]+)/g;
-    const depRe = /add_flex_bison_dependency\s*\(\s*(\w+)\s+(\w+)\s*\)/g;
-
     const cmakeDir = path.dirname(bs.configFile);
+    const rawPairs = parseCmakePairs(content);
 
-    // Build maps of CMake target name → source file
-    const bisonTargetMap = new Map<string, string>();
-    const flexTargetMap = new Map<string, string>();
+    for (const raw of rawPairs) {
+      const bisonAbs = path.resolve(cmakeDir, raw.bisonFile);
+      const flexAbs = path.resolve(cmakeDir, raw.flexFile);
 
-    let m: RegExpExecArray | null;
+      const bison = bisonFiles.find(f => path.resolve(f.fsPath) === bisonAbs);
+      const flex = flexFiles.find(f => path.resolve(f.fsPath) === flexAbs);
 
-    const bisonNameRe = /BISON_TARGET\s*\(\s*(\w+)\s+([^\s)]+)/g;
-    while ((m = bisonNameRe.exec(content)) !== null) {
-      const targetName = m[1];
-      const srcFile = path.resolve(cmakeDir, m[2]);
-      bisonTargetMap.set(targetName, srcFile);
-    }
-
-    const flexNameRe = /FLEX_TARGET\s*\(\s*(\w+)\s+([^\s)]+)/g;
-    while ((m = flexNameRe.exec(content)) !== null) {
-      const targetName = m[1];
-      const srcFile = path.resolve(cmakeDir, m[2]);
-      flexTargetMap.set(targetName, srcFile);
-    }
-
-    // add_flex_bison_dependency(FLEX_TARGET BISON_TARGET)
-    while ((m = depRe.exec(content)) !== null) {
-      const flexName = m[1];
-      const bisonName = m[2];
-      const flexSrc = flexTargetMap.get(flexName);
-      const bisonSrc = bisonTargetMap.get(bisonName);
-      if (!flexSrc || !bisonSrc) continue;
-
-      const bison = bisonFiles.find(f => path.resolve(f.fsPath) === path.resolve(bisonSrc));
-      const flex = flexFiles.find(f => path.resolve(f.fsPath) === path.resolve(flexSrc));
       if (bison && flex) {
-        pairs.push({ parser: bison, scanner: flex, confidence: 'explicit' });
-      }
-    }
-
-    // Fallback: match by stem if same CMakeLists.txt declares both
-    bisonTargetRe.lastIndex = 0;
-    flexTargetRe.lastIndex = 0;
-    const cmakeBisonSrcs: string[] = [];
-    const cmakeFlexSrcs: string[] = [];
-
-    while ((m = bisonTargetRe.exec(content)) !== null) {
-      cmakeBisonSrcs.push(path.resolve(cmakeDir, m[1]));
-    }
-    while ((m = flexTargetRe.exec(content)) !== null) {
-      cmakeFlexSrcs.push(path.resolve(cmakeDir, m[1]));
-    }
-
-    for (const bSrc of cmakeBisonSrcs) {
-      for (const fSrc of cmakeFlexSrcs) {
-        const alreadyPaired = pairs.some(
-          p => p.parser.fsPath === bSrc || p.scanner.fsPath === fSrc,
-        );
-        if (alreadyPaired) continue;
-
-        if (normalizeStem(bSrc) === normalizeStem(fSrc)) {
-          const bison = bisonFiles.find(f => path.resolve(f.fsPath) === bSrc);
-          const flex = flexFiles.find(f => path.resolve(f.fsPath) === fSrc);
-          if (bison && flex) {
-            pairs.push({ parser: bison, scanner: flex, confidence: 'explicit' });
-          }
-        }
+        pairs.push({
+          parser: bison,
+          scanner: flex,
+          confidence: 'explicit',
+          source: 'cmake',
+          reason: `ADD_FLEX_BISON_DEPENDENCY in ${path.relative(bison.workspaceRoot, bs.configFile)}`,
+        });
       }
     }
   }
@@ -190,33 +268,33 @@ async function detectExplicitPairs(
   return pairs;
 }
 
-function detectInferredPairs(
+function buildInferredPairs(
   bisonFiles: BisonSourceFile[],
   flexFiles: FlexSourceFile[],
   explicitPairs: ParserScannerPair[],
 ): ParserScannerPair[] {
-  const pairs: ParserScannerPair[] = [];
-  const pairedBison = new Set(explicitPairs.map(p => p.parser.uri));
-  const pairedFlex = new Set(explicitPairs.map(p => p.scanner.uri));
+  const pairedBisonUris = new Set(explicitPairs.map(p => p.parser.uri));
+  const pairedFlexUris = new Set(explicitPairs.map(p => p.scanner.uri));
 
-  for (const bison of bisonFiles) {
-    if (pairedBison.has(bison.uri)) continue;
-    const bStem = normalizeStem(bison.fsPath);
+  const unpairedBison = bisonFiles.filter(f => !pairedBisonUris.has(f.uri));
+  const unpairedFlex = flexFiles.filter(f => !pairedFlexUris.has(f.uri));
 
-    for (const flex of flexFiles) {
-      if (pairedFlex.has(flex.uri)) continue;
-      const fStem = normalizeStem(flex.fsPath);
+  const rawPairs = detectPairsFromPaths(
+    unpairedBison.map(f => f.fsPath),
+    unpairedFlex.map(f => f.fsPath),
+  );
 
-      if (bStem === fStem && bStem !== '') {
-        pairs.push({ parser: bison, scanner: flex, confidence: 'inferred' });
-        pairedBison.add(bison.uri);
-        pairedFlex.add(flex.uri);
-        break;
-      }
-    }
-  }
-
-  return pairs;
+  return rawPairs.map(raw => {
+    const bison = unpairedBison.find(f => f.fsPath === raw.bisonPath)!;
+    const flex = unpairedFlex.find(f => f.fsPath === raw.flexPath)!;
+    return {
+      parser: bison,
+      scanner: flex,
+      confidence: 'inferred' as const,
+      source: raw.source,
+      reason: raw.reason,
+    };
+  });
 }
 
 async function detectGeneratedFiles(
@@ -226,20 +304,7 @@ async function detectGeneratedFiles(
   const generated: GeneratedFile[] = [];
 
   for (const bison of bisonFiles) {
-    const dir = bison.buildDirectory ?? path.dirname(bison.fsPath);
-    const stem = path.basename(bison.fsPath, path.extname(bison.fsPath));
-
-    const candidates: Array<{ file: string; kind: GeneratedFile['kind'] }> = [
-      { file: path.join(dir, `${stem}.tab.c`), kind: 'tab.c' },
-      { file: path.join(dir, `${stem}.tab.cpp`), kind: 'tab.cpp' },
-      { file: path.join(dir, `${stem}.tab.h`), kind: 'tab.h' },
-      { file: path.join(dir, `${stem}.tab.hpp`), kind: 'tab.h' },
-      { file: path.join(dir, `${stem}.output`), kind: 'output' },
-      { file: path.join(dir, `${stem}.xml`), kind: 'xml' },
-      { file: path.join(dir, `${stem}.gv`), kind: 'gv' },
-    ];
-
-    for (const { file, kind } of candidates) {
+    for (const { file, kind } of generatedCandidates(bison.fsPath, bison.buildDirectory, 'bison')) {
       try {
         await fs.promises.access(file);
         generated.push({ uri: URI.file(file).toString(), fsPath: file, kind, sourceUri: bison.uri });
@@ -250,16 +315,7 @@ async function detectGeneratedFiles(
   }
 
   for (const flex of flexFiles) {
-    const dir = path.dirname(flex.fsPath);
-    const stem = path.basename(flex.fsPath, path.extname(flex.fsPath));
-
-    const candidates: Array<{ file: string; kind: GeneratedFile['kind'] }> = [
-      { file: path.join(dir, 'lex.yy.c'), kind: 'lex.yy.c' },
-      { file: path.join(dir, 'lex.yy.cpp'), kind: 'lex.yy.cpp' },
-      { file: path.join(dir, `${stem}.yy.cpp`), kind: 'lex.yy.cpp' },
-    ];
-
-    for (const { file, kind } of candidates) {
+    for (const { file, kind } of generatedCandidates(flex.fsPath, undefined, 'flex')) {
       try {
         await fs.promises.access(file);
         generated.push({ uri: URI.file(file).toString(), fsPath: file, kind, sourceUri: flex.uri });
@@ -272,6 +328,8 @@ async function detectGeneratedFiles(
   return generated;
 }
 
+// ─── Public scan entry point ─────────────────────────────────────────────────
+
 export async function scanWorkspace(workspaceFolders: string[]): Promise<BisonFlexProjectModel> {
   const bisonFiles: BisonSourceFile[] = [];
   const flexFiles: FlexSourceFile[] = [];
@@ -280,13 +338,13 @@ export async function scanWorkspace(workspaceFolders: string[]): Promise<BisonFl
   const workspaceRoot = workspaceFolders[0] ?? '';
 
   for (const folder of workspaceFolders) {
-    await walkDir(folder, bisonFiles, flexFiles);
+    await walkDir(folder, folder, bisonFiles, flexFiles);
     const bs = await findBuildSystems(folder);
     buildSystems.push(...bs);
   }
 
   const explicitPairs = await detectExplicitPairs(buildSystems, bisonFiles, flexFiles);
-  const inferredPairs = detectInferredPairs(bisonFiles, flexFiles, explicitPairs);
+  const inferredPairs = buildInferredPairs(bisonFiles, flexFiles, explicitPairs);
   const pairs = [...explicitPairs, ...inferredPairs];
 
   const generatedFiles = await detectGeneratedFiles(bisonFiles, flexFiles);
