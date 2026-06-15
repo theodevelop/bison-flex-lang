@@ -151,9 +151,12 @@ export function generatedCandidates(
       { file: path.join(dir, 'lex.yy.c'), kind: 'lex.yy.c' },
       { file: path.join(dir, 'lex.yy.cpp'), kind: 'lex.yy.cpp' },
       { file: path.join(dir, `${stem}.yy.cpp`), kind: 'lex.yy.cpp' },
-      // Automake style
+      // Automake style (dot separator, per-scanner prefix)
       { file: path.join(dir, `lex.${stem}.c`), kind: 'lex.yy.c' },
       { file: path.join(dir, `lex.${stem}.cpp`), kind: 'lex.yy.cpp' },
+      // Automake style (underscore separator)
+      { file: path.join(dir, 'lex_yy.c'), kind: 'lex.yy.c' },
+      { file: path.join(dir, 'lex_yy.cpp'), kind: 'lex.yy.cpp' },
     ];
   }
 }

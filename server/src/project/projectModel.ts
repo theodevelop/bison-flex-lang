@@ -10,6 +10,7 @@ import { scanWorkspace } from './projectScanner';
 
 export class WorkspaceIndex {
   private model: BisonFlexProjectModel;
+  private workspaceFolders: string[] = [];
 
   constructor(workspaceRoot: string) {
     this.model = {
@@ -25,6 +26,7 @@ export class WorkspaceIndex {
 
   async initialize(workspaceFolders: string[]): Promise<void> {
     if (workspaceFolders.length === 0) return;
+    this.workspaceFolders = workspaceFolders;
 
     await new Promise<void>(resolve => {
       setImmediate(async () => {
@@ -51,10 +53,9 @@ export class WorkspaceIndex {
       this.model.lastScanned = Date.now();
     } else {
       // created or renamed — full re-scan (rare event)
-      const folders = this.model.workspaceRoot ? [this.model.workspaceRoot] : [];
-      if (folders.length > 0) {
+      if (this.workspaceFolders.length > 0) {
         try {
-          this.model = await scanWorkspace(folders);
+          this.model = await scanWorkspace(this.workspaceFolders);
         } catch {
           // degrade gracefully
         }

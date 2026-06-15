@@ -211,6 +211,8 @@ test('flex: GNU lex.yy.c and lex.yy.cpp present', () => {
   const files = result.map(r => path.basename(r.file));
   assert.ok(files.includes('lex.yy.c'), 'missing lex.yy.c');
   assert.ok(files.includes('lex.yy.cpp'), 'missing lex.yy.cpp');
+  assert.ok(files.includes('lex_yy.c'), 'missing lex_yy.c');
+  assert.ok(files.includes('lex_yy.cpp'), 'missing lex_yy.cpp');
 });
 
 test('flex: automake lex.stem.c and lex.stem.cpp present', () => {
